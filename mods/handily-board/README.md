@@ -1619,12 +1619,21 @@ starts and after a change of it or of the theme in `/config`.
 ## Lifetime
 
 - The list and the tool calls live in `$.state`, so they survive a hot reload of the mod.
+- The board also keeps a copy of the list of the main loop and of the trend in `$.store`, under
+  `session-copy:<session id>`. A session that you send to the background session list with the
+  Left key runs on in another process, where `$.state` starts empty. When you attach to it again,
+  the board there restores the list and the trend from the copy. It finds the copy by the session
+  id, or else by the transcript path. The store keeps the copies of at most 20 sessions and
+  deletes the oldest. At its first restore in each process, the board writes the session id and
+  the transcript path that it sees to the debug log.
 - The figures of the Session line and of its details live in memory. A hot reload or a new
   process asks `$.session.usage()` again at session start, and counts the compactions and the
   last turn from zero. `/clear` and a resume empty them, because each starts a new session id.
   The permission checks stay until `/clear`.
 - `/clear` ends the session with the reason `clear`. The list of the main loop, the lists of all
   subagents, the findings and the tool calls reset.
+- `/clear` and a resume delete the copy of the ending session in `$.store`, so a new session
+  never restores an old list or trend.
 - Each end of the session, `/clear` and a resume included, clears the agent rows.
 - The board draws again at each tool call, and every 10 seconds while a tab is shown, so the
   times move.
