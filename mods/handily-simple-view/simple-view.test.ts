@@ -794,6 +794,25 @@ describe('Bash row', () => {
       )
       expect(result.tree).toMatchObject({ type: 'Box' })
       expect(result.textCount).toBe(0)
+      const long = Array.from({ length: 9000 }, (_, index) => `error ${String(index)}`).join('\n')
+      const stored = `${EXITED_ON_2_1_332(2)}\n${long}`
+      const read = `${EXIT_CODE_ON_2_1_332(2)}\n${long.slice(0, 200)}\n[lines cut]\n${long.slice(-200)}`
+      world.answer = () => ({ isError: true, result: stored, text: `${read}${'x'.repeat(70_000)}` })
+      const longId = await runBash(world, $, input)
+      const longAnswer = world.answer(input)
+      expect(
+        await texts($, surface, {
+          component: 'ToolUse',
+          props: useProps(longId, 'Bash', input, longAnswer),
+        }),
+      ).toEqual([`${MARKER[surface]}Type check the project npx exit 2 15s`, 'error 0'])
+      const longResult = await drawn(
+        $,
+        { component: 'ToolResult', props: resultProps(longId, 'Bash', longAnswer) },
+        surface,
+      )
+      expect(longResult.tree).toMatchObject({ type: 'Box' })
+      expect(longResult.textCount).toBe(0)
     })
   }
 

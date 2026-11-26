@@ -420,7 +420,8 @@ simple-view draws the engine row unchanged in each of these cases:
   error text that starts with `Interrupted by user` or `[Request interrupted by user`.
 - A failed call whose output is not the error text that its `tool.call` answered. The person
   rejection of Claude Code 2.1.323 has such an output, and so can an interruption or a denial in
-  a wording that the mod does not know.
+  a wording that the mod does not know. An output with the same first line as the answered text
+  counts as that text, because Claude Code can cut a long error output in the text of the call.
 - The output or the input is not a shape that the mod reads, or a staged `Edit` or `Write` that
   did not change the file. A `Read` of an image, a PDF, a notebook or an unchanged file is not a
   shape that the mod reads.

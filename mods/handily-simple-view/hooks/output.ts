@@ -123,10 +123,18 @@ function bareErrorText(text: string): string {
   return bare.startsWith(ERROR_PREFIX) ? bare : `${ERROR_PREFIX}${bare}`
 }
 
+function headLine(text: string): string {
+  return text.split(/\r?\n/, 1)[0] ?? ''
+}
+
 export function isAnsweredText(output: string, kept: string): boolean {
   const shown = bareErrorText(output)
   const answered = bareErrorText(kept)
-  return shown.startsWith(answered) || answered.startsWith(shown)
+  return (
+    shown.startsWith(answered) ||
+    answered.startsWith(shown) ||
+    headLine(shown) === headLine(answered)
+  )
 }
 
 export function erroredText(output: unknown, kept: string | undefined): string | null {
