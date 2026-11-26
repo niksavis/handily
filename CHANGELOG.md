@@ -6,6 +6,21 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.34.0 - 2026-11-26
+
+The board writes the usage snapshot file and shows the plan on its pace line.
+
+### Added
+
+- **The board writes the usage snapshot and shows the plan on the pace line.** Each new reading
+  of the 5 hour and the weekly limit goes into `handily-board.json` in the usage snapshot folder,
+  in the format `basicly.usage-snapshot` version 1. The board merges the reading into its own
+  file and writes the file in place. The folder is `BASICLY_USAGE_SNAPSHOT_DIR`, else
+  `XDG_STATE_HOME/basicly/usage-snapshots`, else `~/.local/state/basicly/usage-snapshots`, and
+  `LOCALAPPDATA/basicly/usage-snapshots` on Windows. The `pace` line of the Session details
+  adds the projected percent of each limit at its reset and `plan start`, `plan hold` or
+  `plan close idle`. The board needs no basicly. (handily-l97t2x)
+
 ## handily-simple-view 0.16.0 - 2026-11-26
 
 The call tab formats each output kind, a second press on shown clears it, and an exit row says
