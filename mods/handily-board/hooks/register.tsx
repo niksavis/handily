@@ -302,6 +302,7 @@ import {
 import {
   type CopyHost,
   type CopyKeep,
+  type Kept,
   deleteCopy,
   keepCopy,
   newCopyKeep,
@@ -1608,15 +1609,19 @@ function copyHost($: EngineInterface): CopyHost {
   }
 }
 
+async function keptState($: EngineInterface): Promise<Kept> {
+  return {
+    list: (await $.state.get(LIST)).value,
+    trend: (await $.state.get(TREND)).value,
+  }
+}
+
 async function restoreSession(
   $: EngineInterface,
   copies: CopyKeep,
   trend: TrendKeep,
 ): Promise<void> {
-  const restored = await restoredCopy(copyHost($), copies, async () => ({
-    list: (await $.state.get(LIST)).value,
-    trend: (await $.state.get(TREND)).value,
-  }))
+  const restored = await restoredCopy(copyHost($), copies, () => keptState($))
   if (restored.list !== undefined) await $.state.set(LIST, restored.list)
   if (restored.trend !== undefined) await setTrend($, trend, restored.trend)
 }
@@ -2268,7 +2273,7 @@ export const register: Register = (on, options) => {
   on('state.set', { plugin: 'handily-board', key: 'list' }, async ($, e, next) => {
     const result = await next(e)
     if (result.deny === undefined && result.value.isSet) {
-      await keepCopy(copyHost($), copies, { list: e.value })
+      await keepCopy(copyHost($), copies, { list: e.value }, () => keptState($))
     }
     return result
   })
@@ -2276,7 +2281,7 @@ export const register: Register = (on, options) => {
   on('state.set', { plugin: 'handily-board', key: 'trend' }, async ($, e, next) => {
     const result = await next(e)
     if (result.deny === undefined && result.value.isSet) {
-      await keepCopy(copyHost($), copies, { trend: e.value })
+      await keepCopy(copyHost($), copies, { trend: e.value }, () => keptState($))
     }
     return result
   })

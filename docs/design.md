@@ -1631,10 +1631,14 @@ The design:
   each session means that two sessions never write the same key.
 - **The write.** A `state.set` hook on the keys `list` and `trend` writes the copy after a
   write of `$.state` that the engine kept. So the copy changes where the board already writes
-  the state, and never in a draw. The hook takes the value from the write itself.
+  the state, and never in a draw. The hook takes the value from the write itself. When the
+  store has no copy of this session, such as after the cap deleted it, the write takes the other
+  key from `$.state`, so the new copy holds both the list and the trend.
 - **The cap.** The store keeps at most 20 copies (`COPIES_AT_MOST`). Before the write of a new
   copy, the board deletes the oldest copies by `at`. A list of 100 tasks is assumed to be at most
-  about 50 KB of JSON, so 20 copies stay under the limit of 4 MiB for the whole store.
+  about 50 KB of JSON, so 20 copies stay under the limit of 4 MiB for the whole store. Known
+  limit: the cap can delete the copy of a live session that is idle. That session has no copy
+  until its next write of the list or the trend.
 - **The restore.** At `session.start` and at the start of each main turn, the board reads the
   copy when `$.state` has no value for `list` or for `trend` in this process. It reads at most
   once for each session id in each process. It reads `session-copy:<session id>` first. When
@@ -1648,7 +1652,9 @@ The design:
 - **A new session.** `session.end` with the reason `clear` or `resume` already empties the
   trend, and `clear` empties the list. The board then deletes the copy of the ending session id
   as its last step, with a debug line. A new session has a new id and a new transcript, so it
-  restores no old list.
+  restores no old list. Known effect: `claude --resume` of a session in a new process also
+  restores its list and its trend while its copy is in the store. A resume in the same process
+  still empties the trend.
 - **Validation.** A copy with another `v`, a list that is not tasks with an id, a title, a status
   and an author, or a trend that is not numbers, is not read. A store that fails logs one debug
   line in each process. The board then works as before, with no copy.

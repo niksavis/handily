@@ -143,19 +143,35 @@ async function makeRoom(host: CopyHost, key: string): Promise<void> {
   for (const oldest of others.slice(0, Math.max(over, 0))) await host.storeDelete(oldest.key)
 }
 
-export async function keepCopy(host: CopyHost, keep: CopyKeep, part: CopyPart): Promise<void> {
+async function partsOf(
+  host: CopyHost,
+  key: string,
+  read: () => Promise<Kept>,
+): Promise<Pick<SessionCopy, 'list' | 'trend'>> {
+  const kept = readCopy(await host.storeGet(key))
+  if (kept !== null) return kept
+  await makeRoom(host, key)
+  const state = await read()
+  return { list: state.list ?? null, trend: state.trend ?? null }
+}
+
+export async function keepCopy(
+  host: CopyHost,
+  keep: CopyKeep,
+  part: CopyPart,
+  read: () => Promise<Kept>,
+): Promise<void> {
   try {
     const sessionId = await host.sessionId()
     const key = copyKey(sessionId)
-    const kept = readCopy(await host.storeGet(key))
-    if (kept === null) await makeRoom(host, key)
+    const kept = await partsOf(host, key, read)
     const copy: SessionCopy = {
       v: COPY_VERSION,
       sessionId,
       transcriptPath: await pathOf(host),
       at: await host.now(),
-      list: 'list' in part ? part.list : (kept?.list ?? null),
-      trend: 'trend' in part ? part.trend : (kept?.trend ?? null),
+      list: 'list' in part ? part.list : kept.list,
+      trend: 'trend' in part ? part.trend : kept.trend,
     }
     await host.storeSet(key, copy)
   } catch (error) {
