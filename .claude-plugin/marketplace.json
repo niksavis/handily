@@ -79,8 +79,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-simple-view",
-        "ref": "handily-simple-view--v0.16.0",
-        "sha": "291558834a2deb40825e8859d8a78cd9fd79913f"
+        "ref": "handily-simple-view--v0.16.1",
+        "sha": "abd1ef1c718526d22a3532808e143691448833d7"
       },
       "description": "One short row for each tool call, except a call that asks you or shows you a plan, with buttons to open and copy a Bash output, /simple to switch it and /simple show to print a call in full."
     },
