@@ -10968,7 +10968,8 @@ break a line one part earlier than the desktop.
     pace 5h full after reset · 7d no growth · 5h ~80% at reset · 7d ~30% at reset · plan start
 ```
 
-Colours: the line dim, as 8.15c.
+Colours: every part and every ` · ` between parts dim, as the board draws a part with no theme
+key. No part takes a theme key.
 
 ### 24.2 The plan, 40 columns
 

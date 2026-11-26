@@ -3324,6 +3324,31 @@ describe(SNAPSHOT_CRITERION, () => {
   )
 
   test(
+    'the limits of $.session.usage() at session start write the file once, before any measure',
+    withWorkitems,
+    async ($, on) => {
+      const usage = {
+        startedAt: 1_000,
+        context: { window: 200_000 },
+        rateLimits: paceLimits(54),
+        cost: { usd: 0 },
+      }
+      const seen = world(on, { usage })
+      await seen.clock.set(PACE_START)
+      await start($)
+      expect(seen.writes.map((one) => one.path)).toEqual([SNAPSHOT_AT])
+      expect(fileOf(seen)).toEqual({
+        ...SNAPSHOT_HEAD,
+        written_at: NOW_S,
+        windows: {
+          five_hour: window(54, FIVE_RESET_S, [[NOW_S, 54]]),
+          seven_day: window(12.6, WEEK_RESET_S, [[NOW_S, 12.6]]),
+        },
+      })
+    },
+  )
+
+  test(
     'a reading that changes nothing writes nothing: a lower percent, a spend limit or no limit leaves the file as it was',
     withWorkitems,
     async ($, on) => {
@@ -3461,7 +3486,7 @@ describe(SNAPSHOT_CRITERION, () => {
     withWorkitems,
     async ($, on) => {
       const seen = world(on, {
-        snapshot: { env: { BASICLY_USAGE_SNAPSHOT_DIR: 'state/snapshots' } },
+        snapshot: { env: { BASICLY_USAGE_SNAPSHOT_DIR: 'state/snapshots' }, platform: 'linux' },
       })
       await paceReadings($, seen, RISING)
       expect(seen.writes).toEqual([])
@@ -3489,6 +3514,15 @@ describe(SNAPSHOT_CRITERION, () => {
     })
     expect(folderRule({ home: 'h' })).toEqual({
       refusal: 'no absolute XDG_STATE_HOME and no absolute HOME',
+    })
+    expect(folderRule({ snapshotDir: 'C:/snap', isWindows: false })).toEqual({
+      refusal: 'BASICLY_USAGE_SNAPSHOT_DIR is not an absolute path',
+    })
+    expect(folderRule({ snapshotDir: 'C:\\snap\\', isWindows: true })).toEqual({
+      folder: 'C:\\snap',
+    })
+    expect(folderRule({ stateHome: 'C:/xdg', home: '/h' })).toEqual({
+      folder: '/h/.local/state/basicly/usage-snapshots',
     })
   })
 

@@ -302,7 +302,6 @@ import {
   type SnapshotHost,
   type SnapshotKeep,
   type SnapshotVariable,
-  type SnapshotWindows,
   noteSnapshot,
   snapshotKeep,
 } from './usage-snapshot'
@@ -1525,18 +1524,17 @@ function snapshotHost($: EngineInterface): SnapshotHost {
   }
 }
 
-async function mergedSnapshot(
+async function mergeSnapshot(
   $: EngineInterface,
   keep: SnapshotKeep,
   limits: readonly SessionRateLimit[],
-): Promise<SnapshotWindows> {
+): Promise<void> {
   try {
-    return await noteSnapshot(snapshotHost($), keep, limits)
+    await noteSnapshot(snapshotHost($), keep, limits)
   } catch (error) {
     $.ui.log(`handily-board: the usage snapshot was not merged: ${String(error)}`, {
       to: 'debug',
     })
-    return keep.windows
   }
 }
 
@@ -1547,9 +1545,9 @@ async function readUsage(
 ): Promise<void> {
   try {
     const usage = await $.session.usage()
-    const snapshot = await mergedSnapshot($, snapshots, usage.rateLimits)
+    await mergeSnapshot($, snapshots, usage.rateLimits)
     await noteVitals($, keep, (vitals, now) =>
-      withSnapshot(withUsage(vitals, usage, now), snapshot),
+      withSnapshot(withUsage(vitals, usage, now), snapshots.windows),
     )
   } catch (error) {
     $.ui.log(`handily-board: no context or cost on this host: ${String(error)}`, { to: 'debug' })
@@ -2110,11 +2108,9 @@ export const register: Register = (on, options) => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     const isCarried = hasCarriedLimits(e)
-    const snapshot = isCarried
-      ? await mergedSnapshot($, snapshots, e.rateLimits)
-      : vitals.current.snapshot
+    if (isCarried) await mergeSnapshot($, snapshots, e.rateLimits)
     await noteVitals($, vitals, (current, now) =>
-      withSnapshot(withMeasure(current, e, now), snapshot),
+      withSnapshot(withMeasure(current, e, now), snapshots.windows),
     )
     if (isCarried) await warnFromVitals($, warnings, vitals.current)
     const { tokens } = e.context

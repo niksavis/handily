@@ -1527,7 +1527,10 @@ mocks are `docs/mocks.md` section 24. The code is `hooks/usage-snapshot.ts`.
   `XDG_STATE_HOME/basicly/usage-snapshots` when `XDG_STATE_HOME` is absolute, else
   `HOME/.local/state/basicly/usage-snapshots`. Each name is read with `$.env.get` by its
   literal name. The board refuses a relative folder by name and writes nothing, because a
-  relative path resolves against the working directory of each session.
+  relative path resolves against the working directory of each session. A path that starts
+  with `/` is absolute. A drive path such as `C:\` is absolute only on Windows, so on Linux and
+  WSL it never lands in the working directory. The board asks the platform only when it needs
+  it.
 - **The merge.** The board reads `handily-board.json` back and merges each reading by the spec:
   it drops a reading whose reset is past; it starts a new window when the stored one is invalid,
   its reset is past, or the reset moved forward more than 600 s; it drops a reading when the

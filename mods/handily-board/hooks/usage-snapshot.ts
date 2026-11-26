@@ -85,8 +85,8 @@ function given(value: string | undefined): string | undefined {
   return value === undefined || value === '' ? undefined : value
 }
 
-export function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(path)
+export function isAbsolutePath(path: string, isWindows: boolean): boolean {
+  return path.startsWith('/') || (isWindows && /^[A-Za-z]:[\\/]/u.test(path))
 }
 
 function under(base: string, rest: string): string {
@@ -94,24 +94,25 @@ function under(base: string, rest: string): string {
 }
 
 export function folderRule(env: SnapshotEnv): FolderRule {
+  const isWindows = env.isWindows === true
   const snapshotDir = given(env.snapshotDir)
   if (snapshotDir !== undefined) {
-    return isAbsolutePath(snapshotDir)
+    return isAbsolutePath(snapshotDir, isWindows)
       ? { folder: snapshotDir.replace(/(?<=.)[\\/]+$/u, '') }
       : { refusal: 'BASICLY_USAGE_SNAPSHOT_DIR is not an absolute path' }
   }
-  if (env.isWindows === true) {
+  if (isWindows) {
     const localAppData = given(env.localAppData)
-    return localAppData !== undefined && isAbsolutePath(localAppData)
+    return localAppData !== undefined && isAbsolutePath(localAppData, isWindows)
       ? { folder: under(localAppData, SNAPSHOT_FOLDER) }
       : { refusal: 'LOCALAPPDATA is not an absolute path' }
   }
   const stateHome = given(env.stateHome)
-  if (stateHome !== undefined && isAbsolutePath(stateHome)) {
+  if (stateHome !== undefined && isAbsolutePath(stateHome, isWindows)) {
     return { folder: under(stateHome, SNAPSHOT_FOLDER) }
   }
   const home = given(env.home)
-  return home !== undefined && isAbsolutePath(home)
+  return home !== undefined && isAbsolutePath(home, isWindows)
     ? { folder: under(home, `${XDG_FALLBACK}/${SNAPSHOT_FOLDER}`) }
     : { refusal: 'no absolute XDG_STATE_HOME and no absolute HOME' }
 }
@@ -322,12 +323,13 @@ export function snapshotKeep(): SnapshotKeep {
 }
 
 export async function snapshotEnv(host: SnapshotHost): Promise<SnapshotEnv> {
-  const snapshotDir = await host.variable('BASICLY_USAGE_SNAPSHOT_DIR')
-  if (given(snapshotDir) !== undefined) return { snapshotDir }
-  if (await host.isWindows()) {
-    return { isWindows: true, localAppData: await host.variable('LOCALAPPDATA') }
-  }
+  const snapshotDir = given(await host.variable('BASICLY_USAGE_SNAPSHOT_DIR'))
+  if (snapshotDir?.startsWith('/') === true) return { snapshotDir }
+  const isWindows = await host.isWindows()
+  if (snapshotDir !== undefined) return { snapshotDir, isWindows }
+  if (isWindows) return { isWindows, localAppData: await host.variable('LOCALAPPDATA') }
   return {
+    isWindows,
     stateHome: await host.variable('XDG_STATE_HOME'),
     home: await host.variable('HOME'),
   }
@@ -395,10 +397,9 @@ export async function noteSnapshot(
   host: SnapshotHost,
   keep: SnapshotKeep,
   limits: readonly SessionRateLimit[],
-): Promise<SnapshotWindows> {
+): Promise<void> {
   const run = () => mergeSnapshot(host, keep, limits)
   const merged = keep.queue.then(run, run)
   keep.queue = merged.catch(() => undefined)
   await merged
-  return keep.windows
 }
