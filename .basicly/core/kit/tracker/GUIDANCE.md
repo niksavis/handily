@@ -59,7 +59,7 @@ Use `--no-daemon` to isolate Codex from an existing shared server.
 Use the client's supported environment configuration for desktop or already-running servers.
 
 Set `BASICLY_HOLDER` to your chosen holder name.
-Set `BASICLY_TRACKER_SESSION` to your unique agent session before launching the server and Git hooks.
+Set `BASICLY_TRACKER_SESSION` to your unique agent session before launching the server and Git hooks. When it is unset, the kit uses `ORCH_SESSION_ID`, else `CLAUDE_CODE_SESSION_ID`, so a claim and the commit-msg hook of one Claude Code session name the same session.
 Use separate session values for concurrent agents.
 Tools cannot change the repository, vault, project prefix or session identity.
 Reconnect after changing tracker configuration.
@@ -212,7 +212,9 @@ evidence and cannot prove a rationale's semantic quality.
 | Small | Does the card have one outcome that can be built and confirmed in one session? | Use `child` for each separately confirmable outcome. Preserve the parent intent. |
 | Testable | Does each criterion name an input or event and an observable response? | Rewrite `--acceptance`. Name the demonstration or test and its expected result before building. |
 
-`dor`, `ready` and `claim` require a current review and a planned check for every criterion.
+For a feature, epic, research or untyped record, `dor`, `ready` and `claim` require a current
+review and a planned check for every criterion. A `task`, `bug` or `chore` starts without a
+review; it needs acceptance criteria.
 The full form also requires the six rationales and actual same-card conversation references.
 A compact review needs no conversation comment. A dependency can still keep a reviewed
 card out of `ready`.
@@ -233,6 +235,13 @@ Keep the card and confirmation linked. Record conversations when facts or decisi
    Use `confirm --evidence` to record each exact argv, its observed result and exit code 0.
    Close as completed only after every criterion is confirmed, with the delivered outcome
    in `--reason`. A comment alone does not satisfy completion confirmation.
+4. **Close by landing:** a `task`, `bug` or `chore` that landed with
+   `basicly worktree merge --mode ci` or `--delivery pr` closes in one call with
+   `close ID --reason TEXT --landed COMMIT --tests JSON`. The record must carry the
+   landing-verification artifact for that commit, and `--tests` maps each criterion to a test
+   file in that commit or to `null`. A `null` opens a follow-up record, and its parent cannot
+   close while that follow-up is open. `close ID --superseded-by RECORD-OR-TAG` closes a
+   replaced record as cancelled.
 
 Read `show` first. Its `comment_log` gives each comment's `seq`; its `process` report gives
 stored review and confirmation evidence. For an explicit `task`, `bug` or `chore`,
