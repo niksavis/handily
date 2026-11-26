@@ -6,6 +6,25 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.34.2 - 2026-11-26
+
+The board keeps its task list and trend after the background session list, and a question wait
+reads an answer.
+
+### Fixed
+
+- **The board keeps the task list and the trend of a session that returns from the background
+  list.** In handily-board, a session sent to the background session list with the Left key runs
+  on in another process, where the board started with an empty task list and an empty trend. Now
+  the board keeps a copy of both in its store under the session id, and the new process restores
+  them by the session id or else by the transcript path. The store keeps the copies of at most 20
+  sessions, and `/clear` and a resume delete the copy of the ending session. Each process writes
+  the session id that it sees to the debug log. (handily-2zz7g)
+- **An agent that asks a question reads waits for: an answer.** In handily-board, the row of a
+  subagent that waited on an `AskUserQuestion` call read `waits for: permission · AskUserQuestion`.
+  Now it reads `waits for: an answer`, as mock 8.2e shows, and a plan approval names its tool.
+  A permission wait still reads `waits for: permission` with the call. (handily-4oqnks)
+
 ## handily-reply-view 0.35.0 - 2026-11-26
 
 The reply view tells basicly skills which diagram kinds it draws.
