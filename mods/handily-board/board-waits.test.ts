@@ -550,7 +550,7 @@ for (const surface of SURFACES) {
     )
 
     test(
-      `a subagent question sets a status line that says asks a question, and a question with a plan approval reads 2 agents wait for you, on ${surface}`,
+      `a subagent question sets a status line that says asks a question, its agent row reads waits for an answer, and a question with a plan approval reads 2 agents wait for you, on ${surface}`,
       withWorkitems,
       async ($, on) => {
         const seen = world(on)
@@ -562,6 +562,11 @@ for (const surface of SURFACES) {
         await seen.clock.advance(NEEDS_YOU_AFTER_MS)
         expect(seen.statuses).toEqual(['◆ scout asks a question: Which region?'])
         expect(seen.notices).toEqual(['app needs you: scout asks a question: Which region?'])
+        const { lines } = await agentScreen($, surface, 'dock', 41)
+        expect(lines.some((line) => line.includes('waits for: an answer'))).toBe(
+          surface === 'desktop',
+        )
+        expect(lines.join('\n')).not.toContain('permission')
         const plan = $.tool.call({ tool: 'ExitPlanMode', agentId: LANE })
         await dialog.opened(2)
         await seen.clock.advance(NEEDS_YOU_AFTER_MS)

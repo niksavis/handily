@@ -19,6 +19,7 @@ import { type PaletteSetting, paletteColor } from './palette'
 import type { PaneElements, RowLayout } from './pane'
 import { type Part, drawPartLines } from './parts'
 import { type AgentRetry, RETRY_TOOL } from './retry'
+import { askSight } from './waits'
 import { SIGNALS, type Signal, type SignalLooks, needsYouText } from './signals'
 import { escaped, paneTaskText, statusLook } from './tasks'
 import { tokensText } from './tokens'
@@ -49,6 +50,8 @@ const BUTTON_CHROME = 4
 const OPEN_LABEL = 'open'
 const MAIN_LOOP = 'main'
 export const WAITS_LEAD = 'waits for: '
+const PERMISSION_WAIT = 'permission'
+const ANSWER_WAIT = 'an answer'
 const STOPPED_AT_LIMIT = 'max_tokens'
 const STALL_COLOR: ThemeKey = 'warning'
 const RETRY_COLOR: ThemeKey = 'warning'
@@ -152,7 +155,11 @@ function failureText(row: AgentRow): string {
 }
 
 export function waitsText(row: AgentRow): string {
-  return row.call === null ? 'permission' : `permission · ${callText(row.call)}`
+  if (row.call === null) return PERMISSION_WAIT
+  const sight = askSight({ ...row.call, question: null })
+  if (sight.kind === 'question') return ANSWER_WAIT
+  if (sight.kind === 'waits') return callText(row.call)
+  return `${PERMISSION_WAIT} · ${callText(row.call)}`
 }
 
 function stallText(stall: AgentStall): string {
