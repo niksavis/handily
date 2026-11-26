@@ -1105,8 +1105,9 @@ In the same test, the Session line reads `Session  ◆ 1 waits · ctx 62% · $4.
 - `asked` and `needs you` come from the engine event `tool.check`. When the verdict for a call of
   a subagent is `ask`, the row says `asked`. When the call is still not settled 3 seconds later,
   the row says `needs you`, the header counts it, and the Session line counts it as a wait.
-  Docked, the row gets a second line, `waits for: permission ·` and the call. Inline, that text
-  is in the tool column.
+  Docked, the row gets a second line, `waits for: permission ·` and the call. A question of
+  `AskUserQuestion` reads `waits for: an answer`, and a plan approval names its tool. Inline, that
+  text is in the tool column.
 - The mark clears when Claude Code records the decision for the call, the telemetry record
   `tool_decision`. The record comes when you answer the dialog, or when the auto mode classifier
   answers with no dialog. It needs no telemetry setting. The board reads the record as it goes
