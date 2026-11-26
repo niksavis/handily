@@ -6,6 +6,31 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-simple-view 0.16.0 - 2026-11-26
+
+The call tab formats each output kind, a second press on shown clears it, and an exit row says
+exit once.
+
+### Added
+
+- **A second press on shown clears the call tab.** In simple-view, a press on `shown` while the
+  `call` tab is on show clears the call from the tab and keeps the tab open. The row reads
+  `more` again. The new `/simple close` command closes the tab. (handily-nhkdgm)
+- **The call tab draws each output kind in its own format.** In simple-view, the `call` tab
+  draws grep and rg matches, git log lines, a unified diff, JSON and markdown in a format of their
+  own, and wraps a long line with a dim marker. Any other output stays plain text. On the
+  desktop, a diff draws with the engine `Code` element. (handily-xuhjgx)
+
+### Fixed
+
+- **An exit row says exit once.** In simple-view, a Bash call with no description showed its
+  program word again after the command, and a call that ran `exit 3` read `exit 3  exit  exit 3`.
+  Now the row leaves out a program word that repeats the first word of the command, and a call
+  that ended with an exit code and printed nothing shows a dim `no output` line. (handily-cwzxm1)
+- **/simple open reads a saved output.** `/simple open N` of a call whose output Claude Code
+  saved to a file showed the short preview text in the `call` tab. Now the tab reads the file,
+  and copy copies all of it. (handily-xuhjgx)
+
 ## handily-board 0.33.0 - 2026-11-25
 
 The this session tab draws its sections with rules in place of boxes.
