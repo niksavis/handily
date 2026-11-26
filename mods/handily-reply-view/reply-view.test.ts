@@ -7013,14 +7013,14 @@ describe(CAPABILITY_CRITERION, () => {
     expect(writtenFiles(world)).toEqual([capabilityFile(DRAWN_HEADER_WORDS)])
   })
 
-  test('writes again when the stored file says written_at more than 300 seconds ahead of the clock', async ($, on) => {
-    const stored = capabilityText(KEPT_CAPABILITY, NOW_S + 301)
+  test('writes nothing when the stored file has the same content and a written_at ahead of the clock', async ($, on) => {
+    const stored = capabilityText(KEPT_CAPABILITY, NOW_S + TWELVE_HOURS_S)
     const world = engineBeneath(on, {
       now: CAPABILITY_NOW,
       files: { [TEST_CAPABILITY_PATH]: stored },
     })
     await startSession($)
-    expect(writtenFiles(world)).toEqual([capabilityFile(DRAWN_HEADER_WORDS)])
+    expect(world.capability.writes).toEqual([])
   })
 
   const CHANGED: readonly [string, string][] = [

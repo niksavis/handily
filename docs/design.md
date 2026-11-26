@@ -1826,7 +1826,7 @@ code is `hooks/capability.ts`. The README of reply-view lists the kinds.
   and `root`.
 - **The write.** At session start only, in place with `$.fs.write`: no rename and no child
   process. The mod reads the file back and writes when the text with the stored `written_at`
-  differs, or when the age is outside the table below. A file that does not parse counts as
+  differs, or when it is older than the table below says. A file that does not parse counts as
   changed.
 - **Failures.** A refused write, a folder with no absolute path or a `plugin.json` with no
   `version` logs one debug line, `reply-view: the capability file was not written:` and the
@@ -1835,7 +1835,6 @@ code is `hooks/capability.ts`. The README of reply-view lists the kinds.
 | Name | Value | Effect |
 | --- | --- | --- |
 | `FRESH_S` | 43200 | A file older than this is written again |
-| `FUTURE_S` | 300 | A file this far ahead of the clock is written again, because a reader skips it |
 
 ### 4.11 handily-filetree (handily-02b2v)
 

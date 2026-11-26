@@ -957,9 +957,8 @@ reads no file of basicly, only its own file, to decide whether to write.
   the `diagrams` setting or the `mode` setting is `off`, the list is empty, because the view
   then draws no diagram when the session starts.
 - **The write.** In place with `$.fs.write`, with no rename and no child process. The mod reads
-  its file back first. It writes only when the content other than `written_at` changed, when
-  `written_at` is more than 12 hours old, or when `written_at` is more than 300 seconds in the
-  future, which a reader skips.
+  its file back first. It writes only when the content other than `written_at` changed or when
+  `written_at` is more than 12 hours old.
 - **Failures.** A refused write, a folder with no absolute path, or a `plugin.json` with no
   `version` writes nothing and logs one debug line: `reply-view: the capability file was not
 written:` and the reason. The session starts as before.

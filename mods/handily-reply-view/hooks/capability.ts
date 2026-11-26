@@ -6,7 +6,6 @@ export const CAPABILITY_FOLDER = 'basicly/capabilities'
 export const XDG_FALLBACK = '.local/state'
 export const WINDOWS_FALLBACK = 'AppData/Local'
 export const FRESH_S = 12 * 60 * 60
-export const FUTURE_S = 300
 
 export type CapabilityVariable =
   'BASICLY_CAPABILITIES_DIR' | 'LOCALAPPDATA' | 'XDG_STATE_HOME' | 'HOME'
@@ -125,9 +124,7 @@ export function isKept(stored: string | undefined, capability: Capability, nowS:
   if (stored === undefined) return false
   const writtenAt = writtenAtOf(stored)
   if (writtenAt === undefined) return false
-  const age = nowS - writtenAt
-  const isFresh = age <= FRESH_S && age >= -FUTURE_S
-  return isFresh && capabilityText(capability, writtenAt) === stored
+  return nowS - writtenAt <= FRESH_S && capabilityText(capability, writtenAt) === stored
 }
 
 export async function capabilityEnv(host: CapabilityHost): Promise<CapabilityEnv> {
