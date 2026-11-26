@@ -10676,3 +10676,240 @@ The call tab is not open.
 - `/simple close` closes the call tab at any width. Every row whose call the tab showed reads
   `more` again.
 - `/simple` with a wrong argument names `close` in its usage line.
+
+## 23. The call tab draws each output kind in its own format (handily-xuhjgx)
+
+The owner asked on 2026-11-19 for a format in the call tab: "there is no format whatsoever in the
+details, so it is hard to read". The orchestrator decided on 2026-11-20: a diff draws with the
+tokens of the mod on the terminal and with the engine `Code` element on the desktop, markdown
+draws with the engine `Markdown` element, and the folds of JSON are drawn marks. The rows of
+`Read`, `Grep` and `Glob` are not in this section. These mocks are the build.
+
+### 23.0 Conventions
+
+As section 22.0. At 120 columns the call tab is docked with body 41. At 40 columns it is inline
+with body 36. Only the output of a `Bash` call gets a kind.
+
+The kinds, and when the mod draws each one:
+
+- **grep**: a part of the command runs `grep`, `egrep`, `fgrep`, `rg` or `git grep`, and every
+  line is `path:N:text`, `N:text`, a context line `path-N-text` or `N-text`, or `--`. The mod
+  draws it.
+- **git log**: a part runs `git log`, and every line is a one-line entry with a short hash, or
+  the first line is `commit` and a full hash. The mod draws it.
+- **diff**: the first line starts with `diff`, `---` or `commit` and a full hash, and a hunk
+  head `@@` follows. The mod draws it on the terminal. On the desktop, one `Code` for each file
+  draws it.
+- **JSON**: the whole text is one JSON object or array. The mod draws it.
+- **markdown**: every part runs `cat`, `head` or `tail`, and one part reads a `.md` or
+  `.markdown` file. `Markdown` draws it.
+- **plain**: any other output. The mod draws it, as today.
+
+- The head keeps the command, the exit code and the time, as in 21.4.
+- The top rule names the kind: `── grep ───`. The plain kind keeps the plain rule.
+- A line wider than the body goes on in the next row after a dim `↳` and one space. Each row
+  is cut at a cell, not at a word, so the text stays as the command printed it. `Markdown`
+  and `Code` wrap by themselves and draw no marker.
+- The count under the body counts the lines of the output, not the rows drawn.
+- `copy` copies the output as the command printed it.
+- `/simple open N` shows the kept record. A `Full output saved to` line and the line that says
+  the record was cut draw dim, apart from the kind. A JSON text that the record cut stays plain.
+- The tab draws at most 60000 characters, as before, and at most about 12000 elements, because the
+  engine refuses a tree of more than 20000 nodes. The last row says how many lines are not drawn.
+
+### 23.1 grep, 120 columns
+
+```text
+Bash · exit 0 · 0.2s
+Find the pool size
+$ rg -n pool_size config
+── grep ─────────────────────────────────
+config/prod.yaml
+12  pool_size: 40
+31  # pool_size is per worker, see docs
+↳ /pools.md
+config/dev.yaml
+4  pool_size: 4
+─────────────────────────────────────────
+3 lines
+[ copy ]
+```
+
+Colours: the path dim; the line number in `planMode`; the match bold in `warning`; a context line
+and `--` dim; `↳` dim; the kind word dim, as the rule.
+
+- The lines of one file stand under its path. The numbers are right-aligned in each file.
+- Only a literal pattern is marked: a pattern with no regular expression character, or any
+  pattern after `-F`. `-i` marks it in any case. Another pattern draws no mark.
+
+### 23.2 grep, 40 columns
+
+```text
+── grep ────────────────────────────
+config/prod.yaml
+12  pool_size: 40
+31  # pool_size is per worker, se
+↳ e docs/pools.md
+```
+
+Colours: as 23.1.
+
+### 23.3 git log, 120 columns
+
+```text
+$ git log --oneline --decorate -2
+── git log ──────────────────────────────
+18789f4 (HEAD -> main, origin/main) feat
+↳ (simple-view): clear the call tab on a
+↳  second press (handily-nhkdgm)
+45c0f6a chore(worktree): merge kit-0493 (
+↳ handily-5cyck0)
+```
+
+```text
+$ git log -1
+── git log ──────────────────────────────
+commit 18789f482ebfff4c2b5eab7e6857db98f
+↳ 81d710c
+Author: A Person <person@example.com>
+Date:   Thu Nov 26 10:14:45 2026 +0100
+
+    feat(simple-view): clear the call tab
+↳  on a second press (handily-nhkdgm)
+```
+
+Colours: the hash in `warning`; the refs in `success`; the subject bold; `commit`, the
+`Author:`, `Merge:` and `Date:` lines and the graph marks `* | \ /` dim.
+
+- `git log -p` and `git show` draw the diff under each entry as 23.5 draws it.
+
+### 23.4 git log, 40 columns
+
+```text
+── git log ─────────────────────────
+18789f4 (HEAD -> main) feat(simple-
+↳ view): clear the call tab on a se
+↳ cond press (handily-nhkdgm)
+```
+
+Colours: as 23.3.
+
+### 23.5 A unified diff, 120 columns, terminal
+
+```text
+$ git diff
+── diff ─────────────────────────────────
+diff --git a/hooks/viewer.ts b/hooks/view
+↳ er.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/hooks/viewer.ts
++++ b/hooks/viewer.ts
+@@ -12,3 +12,4 @@ const RULE = '─'
+ const EMPTY_TEXT =
+-  'No call is shown here yet.'
++  'No call is shown here.'
++const CLOSED = 'closed'
+```
+
+Colours: the `diff`, `index`, `---` and `+++` lines bold; the hunk head in `suggestion`; a
+`+` line in `success`; a `-` line in `error`; a context line as the text.
+
+### 23.6 A unified diff, desktop
+
+```text
+── diff ─────────────────────────────────
+hooks/viewer.ts
+@@ -12,3 +12,4 @@                         (engine Code, format diff: markers, colours)
+ 12 const EMPTY_TEXT =
+-13   'No call is shown here yet.'
++13   'No call is shown here.'
++14 const CLOSED = 'closed'
+```
+
+Colours: the path bold; the rest is the colour of the engine.
+
+- One `Code` for each file, with its path. The mod draws the path line.
+- A file whose last hunk the record or the 60000 limit cut draws with the tokens of 23.5, because
+  a cut hunk does not parse.
+
+### 23.7 A unified diff, 40 columns
+
+```text
+── diff ────────────────────────────
+--- a/hooks/viewer.ts
++++ b/hooks/viewer.ts
+@@ -12,3 +12,4 @@ const RULE = '─'
+-  'No call is shown here yet.'
++  'No call is shown here.'
+```
+
+Colours: as 23.5.
+
+### 23.8 JSON, 120 columns
+
+```text
+$ gh api repos/acme/app
+── json ─────────────────────────────────
+{
+  "name": "app",
+  "stars": 12,
+  "id": 12345678901234567890,
+  "ratio": 1.0,
+  "topics": [
+    "claude-code",
+    "mods"
+  ],
+  "owner": {
+    "plan": {
+      "limits": {
+        "api": {…} 2 keys
+      }
+    }
+  },
+  "labels": []
+}
+```
+
+Colours: a key in `planMode`; a string in `success`; a number, `true`, `false` and `null` in
+`warning`; the fold mark dim.
+
+- A number keeps the text that the command printed: `1.0` stays `1.0`, and a 20-digit integer
+  stays whole.
+- An object or an array 5 levels deep or more draws as one dim mark: `{…} 2 keys` or
+  `[…] 12 items`. `copy` and `/simple show N` give all of it.
+- JSON Lines, or a text with more after the JSON, is plain.
+
+### 23.9 JSON, 40 columns
+
+```text
+── json ────────────────────────────
+{
+  "name": "app",
+  "description": "A long description th
+↳ at goes on",
+  "labels": []
+}
+```
+
+Colours: as 23.8.
+
+### 23.10 Markdown, 120 and 40 columns
+
+```text
+$ cat docs/notes.md
+── markdown ─────────────────────────────
+(engine Markdown: headings, lists, code blocks and links, as a reply draws them)
+```
+
+- `cat -n` and other options of `cat` keep the plain kind, because the text is no longer
+  markdown.
+
+### 23.11 Failure modes
+
+- **A grep output with an error line**, such as `grep: x: Permission denied`, is plain, because
+  every line must have the shape.
+- **`rg` without `-n` into a pipe** prints `path:text` with no line number. The mod cannot tell
+  the path from the text, so the output is plain.
+- **A diff that `Code` does not parse** draws as plain code on the desktop, and the engine logs
+  it.
+- **A kind that the mod does not know** is plain. The mod never guesses a kind.

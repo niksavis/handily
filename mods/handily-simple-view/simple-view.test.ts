@@ -3,6 +3,7 @@ import type {
   ConfigValue,
   On,
   RenderPropsOf,
+  RenderSurface,
   ToolCallResult,
   UiCopyResult,
 } from 'claude-code'
@@ -1104,7 +1105,7 @@ async function mountAt(
   $: Engine,
   props: RenderPropsOf['ToolUse'],
   viewport: Seat,
-  surface: Surface = 'terminal',
+  surface: RenderSurface = 'terminal',
 ) {
   return $.ui.mount({
     plugin: 'handily-simple-view',
@@ -1115,7 +1116,11 @@ async function mountAt(
   })
 }
 
-async function mountViewer($: Engine, surface: Surface = 'terminal') {
+async function mountViewer(
+  $: Engine,
+  surface: RenderSurface = 'terminal',
+  bodyColumns = VIEWER_BODY,
+) {
   return $.ui.mount({
     plugin: 'handily-simple-view',
     surface,
@@ -1124,7 +1129,7 @@ async function mountViewer($: Engine, surface: Surface = 'terminal') {
     props: {
       title: 'call',
       isFocused: false,
-      bodyColumns: VIEWER_BODY,
+      bodyColumns,
       placement: 'dock',
       scroll: { offset: 0, bodyRows: 40 },
       view: {},
@@ -1145,13 +1150,32 @@ async function viewerText($: Engine, surface: Surface = 'terminal'): Promise<str
   return found
 }
 
+function joined(node: unknown): string {
+  if (typeof node === 'string') return node
+  if (!isDrawnNode(node)) return ''
+  return (node.children ?? []).map(joined).join('')
+}
+
 async function viewerBody($: Engine, surface: Surface = 'terminal'): Promise<string[]> {
   const ui = await mountViewer($, surface)
   const boxes = await ui.findAll({ type: 'Box' })
   const lines = boxes
     .filter((box) => box.key?.startsWith('viewer-line-') === true)
-    .map((box) => box.children.map(shown).join(''))
+    .map((box) => box.children.map(joined).join(''))
   await ui.unmount()
+  return lines
+}
+
+const WRAP_MARK = '↳ '
+
+function unwrapped(rows: readonly string[]): string[] {
+  const lines: string[] = []
+  for (const row of rows) {
+    const last = lines.length - 1
+    if (row.startsWith(WRAP_MARK) && last >= 0)
+      lines[last] = `${lines[last] ?? ''}${row.slice(WRAP_MARK.length)}`
+    else lines.push(row)
+  }
   return lines
 }
 
@@ -1528,7 +1552,9 @@ describe('tool row fold and copy', () => {
       `a refused row shows and copies the full hook message on ${surface}`,
       async (world, $) => {
         const props = await bashProps(world, $, REFUSED_INPUT, failed(HOOK_REFUSAL))
-        expect(await shownInTab($, props, surface)).toEqual(HOOK_MESSAGE_LINES)
+        const rows = await shownInTab($, props, surface)
+        expect(unwrapped(rows)).toEqual(HOOK_MESSAGE_LINES)
+        expect(rows.every((row) => displayWidth(row) <= VIEWER_BODY)).toBe(true)
         const ui = await mountUse($, props, surface)
         await ui.press({ key: 'copy' })
         expect(world.copies).toEqual([HOOK_MESSAGE])
@@ -1941,7 +1967,498 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
       expect(lines[0]).toBe(edges('#●# Edit  a.ts  #error#', '[ more ] [ copy ]'))
       await ui.press({ key: 'fold' })
       await ui.unmount()
-      expect(await viewerBody($)).toEqual(text.split('\n'))
+      expect(unwrapped(await viewerBody($))).toEqual(text.split('\n'))
+    },
+  )
+})
+
+const DOCKED_BODY = 41
+const INLINE_BODY = 36
+const BODY_COLUMNS = [DOCKED_BODY, INLINE_BODY] as const
+
+type TabDrawing = {
+  top: string
+  rows: string[]
+  lines: string[]
+  codes: Record<string, unknown>[]
+  markdowns: Record<string, unknown>[]
+  head: string[]
+}
+
+type Leaf = { style: string; text: string }
+
+function leavesOf(node: unknown, style = ''): Leaf[] {
+  if (typeof node === 'string') return node === '' ? [] : [{ style, text: node }]
+  if (!isDrawnNode(node)) return []
+  const props = node.props ?? {}
+  const own =
+    node.type === 'Text'
+      ? [
+          props.dimColor === true ? 'dim' : '',
+          props.bold === true ? 'bold' : '',
+          typeof props.color === 'string' ? props.color : '',
+        ]
+          .filter((part) => part !== '')
+          .join('+')
+      : ''
+  const inner = own === '' ? style : style === '' ? own : `${style}+${own}`
+  return (node.children ?? []).flatMap((child) => leavesOf(child, inner))
+}
+
+function leafText({ style, text }: Leaf): string {
+  return style === '' ? text : `[${style}:${text}]`
+}
+
+function logicalLines(rows: readonly Leaf[][]): string[] {
+  const lines: Leaf[][] = []
+  for (const row of rows) {
+    const [first, ...rest] = row
+    const last = lines.at(-1)
+    if (first?.text === '↳ ' && first.style === 'dim' && last !== undefined) last.push(...rest)
+    else lines.push([...row])
+  }
+  return lines.map((line) => {
+    const merged: Leaf[] = []
+    for (const leaf of line) {
+      const previous = merged.at(-1)
+      if (previous?.style === leaf.style) previous.text += leaf.text
+      else merged.push({ ...leaf })
+    }
+    return merged.map(leafText).join('')
+  })
+}
+
+async function tabAt(
+  $: Engine,
+  props: RenderPropsOf['ToolUse'],
+  bodyColumns: number,
+  surface: RenderSurface = 'terminal',
+): Promise<TabDrawing> {
+  const row = await mountAt($, props, WIDE, surface)
+  await row.press({ key: 'fold' })
+  await row.unmount()
+  return viewerAt($, bodyColumns, surface)
+}
+
+async function viewerAt($: Engine, bodyColumns: number, surface: RenderSurface = 'terminal') {
+  const ui = await mountViewer($, surface, bodyColumns)
+  const boxes = await ui.findAll({ type: 'Box' })
+  const keyed = (start: string) => boxes.filter((box) => box.key?.startsWith(start) === true)
+  const textOf = (key: string) => keyed(key).map((box) => box.children.map(joined).join(''))
+  const leaves = keyed('viewer-line-').map((box) =>
+    box.children.flatMap((child) => leavesOf(child)),
+  )
+  const drawing = {
+    top: textOf('viewer-top')[0] ?? '',
+    rows: leaves.map((row) => row.map(leafText).join('')),
+    lines: logicalLines(leaves),
+    codes: (await ui.findAll({ type: 'Code' })).map((code) => ({ ...code.props })),
+    markdowns: (await ui.findAll({ type: 'Markdown' })).map((block) => ({ ...block.props })),
+    head: [...textOf('viewer-head'), ...textOf('viewer-label'), ...textOf('viewer-command')],
+  }
+  await ui.unmount()
+  return drawing
+}
+
+function rule(word: string, columns: number): string {
+  const head = `── ${word} `
+  return head + '─'.repeat(columns - head.length)
+}
+
+const GREP_RUN = { command: 'rg -n pool_size config', description: 'Find the pool size' }
+const GREP_STDOUT = [
+  'config/prod.yaml:12:pool_size: 40',
+  'config/prod.yaml:31:# pool_size is per worker, see docs/pools.md',
+  'config/dev.yaml:4:pool_size: 4',
+].join('\n')
+
+const GREP_CONTEXT_STDOUT = [
+  'd/sub/b.txt-1-x',
+  'd/sub/b.txt:2:pool_size: 9',
+  '--',
+  'd/a.txt:1:alpha pool_size: 4',
+  'd/a.txt-2-beta',
+  'd/a.txt:3:pool_size again',
+].join('\n')
+const LOG_ONE_LINE_STDOUT = [
+  '18789f4 (HEAD -> main, origin/main) feat(simple-view): clear the call tab on a second press (handily-nhkdgm)',
+  '45c0f6a chore(worktree): merge kit-0493 (handily-5cyck0)',
+].join('\n')
+const LOG_FULL_STDOUT = [
+  'commit 18789f482ebfff4c2b5eab7e6857db98f81d710c',
+  'Author: A Person <person@example.com>',
+  'Date:   Thu Nov 26 10:14:45 2026 +0100',
+  '',
+  '    feat(simple-view): clear the call tab on a second press (handily-nhkdgm)',
+  '',
+  '    A press on shown clears the call.',
+].join('\n')
+const DIFF_HUNK = [
+  "@@ -12,3 +12,4 @@ const RULE = '─'",
+  ' const EMPTY_TEXT =',
+  "-  'No call is shown here yet.'",
+  "+  'No call is shown here.'",
+  "+const CLOSED = 'closed'",
+  ' const NEXT = 1',
+]
+const DIFF_STDOUT = [
+  'diff --git a/hooks/viewer.ts b/hooks/viewer.ts',
+  'index 1a2b3c4..5d6e7f8 100644',
+  '--- a/hooks/viewer.ts',
+  '+++ b/hooks/viewer.ts',
+  ...DIFF_HUNK,
+].join('\n')
+const DIFF_LINES = [
+  '[bold:diff --git a/hooks/viewer.ts b/hooks/viewer.ts]',
+  '[bold:index 1a2b3c4..5d6e7f8 100644]',
+  '[bold:--- a/hooks/viewer.ts]',
+  '[bold:+++ b/hooks/viewer.ts]',
+  "[suggestion:@@ -12,3 +12,4 @@ const RULE = '─']",
+  ' const EMPTY_TEXT =',
+  "[error:-  'No call is shown here yet.']",
+  "[success:+  'No call is shown here.']",
+  "[success:+const CLOSED = 'closed']",
+  ' const NEXT = 1',
+]
+const JSON_STDOUT =
+  '{"name":"app","stars":12,"id":12345678901234567890,"ratio":1.0,"topics":["claude-code","mods"],"owner":{"plan":{"limits":{"api":{"a":1,"b":2}}}},"labels":[],"ok":true,"none":null}'
+const JSON_LINES = [
+  '{',
+  '  [planMode:"name"]: [success:"app"],',
+  '  [planMode:"stars"]: [warning:12],',
+  '  [planMode:"id"]: [warning:12345678901234567890],',
+  '  [planMode:"ratio"]: [warning:1.0],',
+  '  [planMode:"topics"]: [',
+  '    [success:"claude-code"],',
+  '    [success:"mods"]',
+  '  ],',
+  '  [planMode:"owner"]: {',
+  '    [planMode:"plan"]: {',
+  '      [planMode:"limits"]: {',
+  '        [planMode:"api"]: [dim:{…} 2 keys]',
+  '      }',
+  '    }',
+  '  },',
+  '  [planMode:"labels"]: [],',
+  '  [planMode:"ok"]: [warning:true],',
+  '  [planMode:"none"]: [warning:null]',
+  '}',
+]
+
+async function kindTab(
+  world: World,
+  $: Engine,
+  command: string,
+  stdout: string,
+  columns: number,
+  surface: RenderSurface = 'terminal',
+  extra: Record<string, unknown> = {},
+) {
+  const input = { command, description: 'Run it' }
+  const props = await bashProps(world, $, input, answered(`${stdout}\n`, extra))
+  return tabAt($, props, columns, surface)
+}
+
+describe('the call tab by output kind', () => {
+  for (const columns of BODY_COLUMNS) {
+    viewTest(
+      `grep matches draw the path dim, the line number and the marked match at body ${String(columns)}`,
+      async (world, $) => {
+        const props = await bashProps(world, $, GREP_RUN, answered(`${GREP_STDOUT}\n`))
+        const tab = await tabAt($, props, columns)
+        expect(tab.top).toBe(rule('grep', columns))
+        expect(tab.head).toEqual([
+          'Bash · exit 0 · 0.0s',
+          'Find the pool size',
+          '$ rg -n pool_size config',
+        ])
+        expect(tab.lines).toEqual([
+          '[dim:config/prod.yaml]',
+          '[planMode:12]  [bold+warning:pool_size]: 40',
+          '[planMode:31]  # [bold+warning:pool_size] is per worker, see docs/pools.md',
+          '[dim:config/dev.yaml]',
+          '[planMode:4]  [bold+warning:pool_size]: 4',
+        ])
+        expect(
+          tab.rows.every((row) => displayWidth(row.replace(/\[[^:\]]+:|\]/g, '')) <= columns),
+        ).toBe(true)
+        if (columns === INLINE_BODY) {
+          expect(tab.rows.slice(2, 4)).toEqual([
+            '[planMode:31]  # [bold+warning:pool_size] is per worker, see d',
+            '[dim:↳ ]ocs/pools.md',
+          ])
+        }
+      },
+    )
+
+    viewTest(
+      `a git log draws the hash, the refs and the subject at body ${String(columns)}`,
+      async (world, $) => {
+        const oneLine = await kindTab(
+          world,
+          $,
+          'git log --oneline --decorate -2',
+          LOG_ONE_LINE_STDOUT,
+          columns,
+        )
+        expect(oneLine.top).toBe(rule('git log', columns))
+        expect(oneLine.lines).toEqual([
+          '[warning:18789f4][success: (HEAD -> main, origin/main)][bold: feat(simple-view): clear the call tab on a second press (handily-nhkdgm)]',
+          '[warning:45c0f6a][bold: chore(worktree): merge kit-0493 (handily-5cyck0)]',
+        ])
+        const full = await kindTab(world, $, 'git log -1', LOG_FULL_STDOUT, columns)
+        expect(full.lines).toEqual([
+          '[dim:commit ][warning:18789f482ebfff4c2b5eab7e6857db98f81d710c]',
+          '[dim:Author: A Person <person@example.com>]',
+          '[dim:Date:   Thu Nov 26 10:14:45 2026 +0100]',
+          ' ',
+          '[bold:    feat(simple-view): clear the call tab on a second press (handily-nhkdgm)]',
+          ' ',
+          '    A press on shown clears the call.',
+        ])
+      },
+    )
+
+    viewTest(
+      `a unified diff draws its own tokens on the terminal at body ${String(columns)}`,
+      async (world, $) => {
+        const tab = await kindTab(world, $, 'git diff', DIFF_STDOUT, columns)
+        expect(tab.top).toBe(rule('diff', columns))
+        expect(tab.lines).toEqual(DIFF_LINES)
+        expect(tab.codes).toEqual([])
+      },
+    )
+
+    viewTest(
+      `JSON draws pretty, keeps its numbers and folds deep levels at body ${String(columns)}`,
+      async (world, $) => {
+        const tab = await kindTab(world, $, 'gh api repos/acme/app', JSON_STDOUT, columns)
+        expect(tab.top).toBe(rule('json', columns))
+        expect(tab.lines).toEqual(JSON_LINES)
+      },
+    )
+
+    viewTest(
+      `markdown that cat prints draws with the Markdown element at body ${String(columns)}`,
+      async (world, $) => {
+        const tab = await kindTab(world, $, 'cat docs/notes.md', '# Notes\n\n- one\n- two', columns)
+        expect(tab.top).toBe(rule('markdown', columns))
+        expect(tab.markdowns).toEqual([{ text: '# Notes\n\n- one\n- two' }])
+        expect(tab.rows).toEqual([])
+      },
+    )
+  }
+
+  viewTest(
+    'grep context lines draw dim under their path, and a regular expression is not marked',
+    async (world, $) => {
+      const context = await kindTab(
+        world,
+        $,
+        'grep -rn -C1 pool_size d',
+        GREP_CONTEXT_STDOUT,
+        DOCKED_BODY,
+      )
+      expect(context.lines).toEqual([
+        '[dim:d/sub/b.txt]',
+        '[planMode:1]  [dim:x]',
+        '[planMode:2]  [bold+warning:pool_size]: 9',
+        '[dim:--]',
+        '[dim:d/a.txt]',
+        '[planMode:1]  alpha [bold+warning:pool_size]: 4',
+        '[planMode:2]  [dim:beta]',
+        '[planMode:3]  [bold+warning:pool_size] again',
+      ])
+      const regex = await kindTab(world, $, "rg -n 'pool_.*' config", GREP_STDOUT, DOCKED_BODY)
+      expect(regex.lines[1]).toBe('[planMode:12]  pool_size: 40')
+      const ignoring = await kindTab(
+        world,
+        $,
+        'grep -rni POOL_SIZE config',
+        GREP_STDOUT,
+        DOCKED_BODY,
+      )
+      expect(ignoring.lines[1]).toBe('[planMode:12]  [bold+warning:pool_size]: 40')
+    },
+  )
+
+  viewTest('a grep output with an error line or no line numbers stays plain', async (world, $) => {
+    const errored = await kindTab(
+      world,
+      $,
+      'rg -n pool_size config',
+      GREP_STDOUT,
+      DOCKED_BODY,
+      'terminal',
+      {
+        stderr: 'rg: config/x: Permission denied\n',
+      },
+    )
+    expect(errored.top).toBe('─'.repeat(DOCKED_BODY))
+    const unnumbered = await kindTab(
+      world,
+      $,
+      'rg pool_size config',
+      'config/prod.yaml:pool_size: 40',
+      DOCKED_BODY,
+    )
+    expect(unnumbered.top).toBe('─'.repeat(DOCKED_BODY))
+    expect(unnumbered.lines).toEqual(['config/prod.yaml:pool_size: 40'])
+  })
+
+  for (const surface of ['desktop', 'vscode'] as const) {
+    viewTest(
+      `a unified diff draws the path and one Code per file on ${surface}`,
+      async (world, $) => {
+        const tab = await kindTab(world, $, 'git diff', DIFF_STDOUT, DOCKED_BODY, surface)
+        expect(tab.lines).toEqual(['[bold:hooks/viewer.ts]'])
+        expect(tab.codes).toEqual([
+          { source: DIFF_HUNK.join('\n'), path: 'hooks/viewer.ts', format: 'diff' },
+        ])
+      },
+    )
+  }
+
+  viewTest(
+    'git show draws the commit head as a git log does and the diff under it',
+    async (world, $) => {
+      const show = [...LOG_FULL_STDOUT.split('\n'), '', DIFF_STDOUT].join('\n')
+      const terminal = await kindTab(world, $, 'git show HEAD', show, DOCKED_BODY)
+      expect(terminal.top).toBe(rule('diff', DOCKED_BODY))
+      expect(terminal.lines).toEqual([
+        '[dim:commit ][warning:18789f482ebfff4c2b5eab7e6857db98f81d710c]',
+        '[dim:Author: A Person <person@example.com>]',
+        '[dim:Date:   Thu Nov 26 10:14:45 2026 +0100]',
+        ' ',
+        '[bold:    feat(simple-view): clear the call tab on a second press (handily-nhkdgm)]',
+        ' ',
+        '    A press on shown clears the call.',
+        ' ',
+        ...DIFF_LINES,
+      ])
+      const desktop = await kindTab(world, $, 'git show HEAD', show, DOCKED_BODY, 'desktop')
+      expect(desktop.lines.slice(-1)).toEqual(['[bold:hooks/viewer.ts]'])
+      expect(desktop.codes).toHaveLength(1)
+    },
+  )
+
+  viewTest(
+    'a formatted output past the node bound of a tree ends with the count of lines not drawn',
+    async (world, $) => {
+      const big = JSON.stringify(Array.from({ length: 20000 }, (_, index) => index))
+      const tab = await kindTab(world, $, 'gh api big', big, DOCKED_BODY)
+      expect(tab.top).toBe(rule('json', DOCKED_BODY))
+      const drawn = tab.lines.slice(0, -1).reduce((sum, line) => sum + line.length + 1, 0)
+      expect(drawn).toBeLessThanOrEqual(60_000)
+      expect(tab.lines.at(-1)).toMatch(
+        /^\[dim:… \d+ more lines not drawn\. Copy takes all of them\.\]$/,
+      )
+      const viewer = await mountViewer($, 'terminal', DOCKED_BODY)
+      expect(sketch(await viewer.drawn()).at(-2)).toBe('~1 line~')
+      await viewer.unmount()
+    },
+  )
+
+  viewTest(
+    'the call tab draws at most 60000 characters of long lines and counts the rest',
+    async (world, $) => {
+      const long = Array.from({ length: 100 }, () => 'x'.repeat(1000)).join('\n')
+      const tab = await kindTab(world, $, 'cat wide.txt', long, DOCKED_BODY)
+      expect(tab.lines.slice(0, -1)).toEqual(Array.from({ length: 59 }, () => 'x'.repeat(1000)))
+      expect(tab.lines.at(-1)).toBe('[dim:… 41 more lines not drawn. Copy takes all of them.]')
+    },
+  )
+
+  viewTest(
+    'a plain output of many short lines draws within the node bound of a tree',
+    async (world, $) => {
+      const many = Array.from({ length: 30000 }, (_, index) => String(index)).join('\n')
+      const tab = await kindTab(world, $, 'seq 0 29999', many, DOCKED_BODY)
+      expect(tab.lines[0]).toBe('0')
+      expect(tab.lines.at(-1)).toMatch(
+        /^\[dim:… \d+ more lines not drawn\. Copy takes all of them\.\]$/,
+      )
+    },
+  )
+
+  viewTest(
+    'a diff whose last hunk is cut draws its own tokens on the desktop',
+    async (world, $) => {
+      const cut = DIFF_STDOUT.split('\n').slice(0, -1).join('\n')
+      const tab = await kindTab(world, $, 'git diff', cut, DOCKED_BODY, 'desktop')
+      expect(tab.codes).toEqual([])
+      expect(tab.lines).toEqual(DIFF_LINES.slice(0, -1))
+    },
+  )
+
+  viewTest(
+    'JSON with more text after it, and cat -n of a markdown file, stay plain',
+    async (world, $) => {
+      const trailing = await kindTab(
+        world,
+        $,
+        'gh api repos/acme/app',
+        '{"a":1}\nmore',
+        DOCKED_BODY,
+      )
+      expect(trailing.top).toBe('─'.repeat(DOCKED_BODY))
+      expect(trailing.lines).toEqual(['{"a":1}', 'more'])
+      const numbered = await kindTab(
+        world,
+        $,
+        'cat -n docs/notes.md',
+        '     1\t# Notes',
+        DOCKED_BODY,
+      )
+      expect(numbered.markdowns).toEqual([])
+      expect(numbered.top).toBe('─'.repeat(DOCKED_BODY))
+    },
+  )
+
+  viewTest(
+    'a long plain line wraps at the body with a dim marker on each next row',
+    async (world, $) => {
+      const tab = await kindTab(world, $, 'cat long.txt', 'x'.repeat(80), INLINE_BODY)
+      expect(tab.rows).toEqual([
+        'x'.repeat(36),
+        `[dim:↳ ]${'x'.repeat(34)}`,
+        `[dim:↳ ]${'x'.repeat(10)}`,
+      ])
+      expect(tab.lines).toEqual(['x'.repeat(80)])
+    },
+  )
+
+  viewTest(
+    'a kept record cut at 8000 characters draws its cut line dim and its JSON plain',
+    async (world, $) => {
+      const big = JSON.stringify(Array.from({ length: 3000 }, (_, index) => index))
+      world.answer = () => answered(`${big}\n`)
+      await runBash(world, $, { command: 'gh api big', description: 'Read a big list' })
+      expect(await commandText($, 'open 1')).toBe('Call 1 of the last 1 is in the call tab.')
+      const tab = await viewerAt($, DOCKED_BODY)
+      expect(tab.top).toBe('─'.repeat(DOCKED_BODY))
+      expect(tab.lines.at(-1)).toMatch(
+        /^\[dim:\[simple-view kept the first 8000 characters; \d+ more were cut\]\]$/,
+      )
+    },
+  )
+
+  viewTest(
+    'a kept record with a saved file draws the saved line dim and its JSON in its format',
+    async (world, $) => {
+      const path = `${ROOT}/.tool-results/out.json`
+      world.answer = () => answered('{"a":1}\n', { persistedOutputPath: path })
+      await runBash(world, $, { command: 'gh api small', description: 'Read a small object' })
+      expect(await commandText($, 'open 1')).toBe('Call 1 of the last 1 is in the call tab.')
+      const tab = await viewerAt($, DOCKED_BODY)
+      expect(tab.top).toBe(rule('json', DOCKED_BODY))
+      expect(tab.lines).toEqual([
+        `[dim:Full output saved to ${path}]`,
+        '[dim: ]',
+        '{',
+        '  [planMode:"a"]: [warning:1]',
+        '}',
+      ])
     },
   )
 })

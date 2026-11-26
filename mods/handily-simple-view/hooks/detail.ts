@@ -7,10 +7,27 @@ export const PART_LIMIT = 8000
 
 type Answer = { result?: unknown; text?: string; deny?: string; isError?: true }
 
+const SAVED_PREFIX = 'Full output saved to '
+const CUT_LINE = /^\[simple-view kept the first \d+ characters; \d+ more were cut\]$/
+
+export type KeptParts = { before: string[]; body: string[]; after: string[] }
+
 export function capped(text: string, limit = PART_LIMIT): string {
   if (text.length <= limit) return text
   const left = text.length - limit
   return `${text.slice(0, limit)}\n[simple-view kept the first ${String(limit)} characters; ${String(left)} more were cut]`
+}
+
+export function keptParts(lines: readonly string[]): KeptParts {
+  const isSaved = lines[0]?.startsWith(SAVED_PREFIX) === true && lines[1] === ''
+  const before = isSaved ? lines.slice(0, 2) : []
+  const rest = lines.slice(before.length)
+  const isCut = rest.length > 0 && CUT_LINE.test(rest.at(-1) ?? '')
+  return {
+    before,
+    body: isCut ? rest.slice(0, -1) : rest,
+    after: isCut ? rest.slice(-1) : [],
+  }
 }
 
 function hunkText(hunks: ReturnType<typeof hunksOf>): string[] {
@@ -59,7 +76,7 @@ export function diffText(result: unknown): string {
 
 function savedNote(result: unknown): string {
   if (!isRecord(result) || typeof result.persistedOutputPath !== 'string') return ''
-  return `Full output saved to ${result.persistedOutputPath}\n\n`
+  return `${SAVED_PREFIX}${result.persistedOutputPath}\n\n`
 }
 
 function outputText(answer: Answer): string {

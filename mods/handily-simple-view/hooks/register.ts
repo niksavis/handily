@@ -884,13 +884,18 @@ async function viewerDrawing(
             logFailure($, 'the call tab did not move', error)
           })
         }
-  return drawViewer(elements, memory.viewer, e.props.bodyColumns, {
-    copy: (surface) => {
-      if (call !== null) void copyOutput($, call.output, surface)
+  return drawViewer(
+    elements,
+    memory.viewer,
+    { surface: e.surface, bodyColumns: e.props.bodyColumns },
+    {
+      copy: (surface) => {
+        if (call !== null) void copyOutput($, call.output, surface)
+      },
+      previous: go(neighbours.previous),
+      next: go(neighbours.next),
     },
-    previous: go(neighbours.previous),
-    next: go(neighbours.next),
-  })
+  )
 }
 
 async function isSimple(
@@ -1001,8 +1006,8 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: VIEWER_PANE.id }, async ($, e) => {
     memory.widest = widestAfter(memory.widest, e.viewport)
     await $.state.get(VIEWING)
-    const { Box, Text, Button } = $.ui.resolve(e)
-    return viewerDrawing($, memory, e, { Box, Text, Button })
+    const { Box, Text, Button, Code, Markdown } = $.ui.resolve(e)
+    return viewerDrawing($, memory, e, { Box, Text, Button, Code, Markdown })
   })
 
   on('tool.call', async ($, e, next) => {

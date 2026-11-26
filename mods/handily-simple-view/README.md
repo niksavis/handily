@@ -35,7 +35,7 @@ tool result. Only the screen changes.
 ● claude-in-chrome · list_connected_browsers  done  1 line
 ```
 
-The approved mocks are in `docs/mocks.md`, sections 6, 21 and 22. Section 7.2 is superseded by
+The approved mocks are in `docs/mocks.md`, sections 6, 21, 22 and 23. Section 7.2 is superseded by
 section 21. The design is in `docs/design.md`, section 4.8.
 
 [docs/install.md](../../docs/install.md) gives the install, update and uninstall steps.
@@ -363,13 +363,39 @@ line 140
 - In the `call` tab, colour codes are dropped, a line that a carriage return overwrote shows its
   last part, a tab becomes spaces up to the next 8-cell stop, and other hidden characters show as
   escapes such as `\u200b`. A wide character or an emoji takes 2 cells, and a combining mark
-  takes none. The tab draws at most 60000 characters. Then a dim line says how many lines it did
+  takes none. The tab draws at most 60000 characters and at most about 12000 elements, because
+  the engine refuses a tree of more than 20000 nodes. Then a dim line says how many lines it did
   not draw, and `copy` still takes all of them.
+- A line wider than the tab goes on in the next row after a dim `↳`. The tab cuts the line at a
+  cell, not at a word, so the text stays as the command printed it.
 - A running call has `more` only. The `call` tab shows the full command.
 - A call with no output and an `Edit` or `Write` row have no buttons. An output of only spaces,
   tabs and blank lines counts as no output, so its row shows `0 lines` and has no buttons.
 - The press handler is `pressMore(port, site, call, seat)` in `hooks/viewer.ts`. It answers
-  `viewer`, `hint` or `unhint`.
+  `viewer`, `cleared`, `hint` or `unhint`.
+
+### Output kinds in the call tab
+
+The `call` tab draws the output of a `Bash` call in the format of its kind. The mod finds the
+kind from the command and the text, and never guesses. Any other output is plain text. The top
+rule names the kind, such as `── grep ───`. The head keeps the command, the exit code and the
+time.
+
+| Kind     | When                                                                                                                                       | Drawn as                                                                                                                                  |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| grep     | a part of the command runs `grep`, `egrep`, `fgrep`, `rg` or `git grep`, and every line is `path:N:text`, `N:text`, a context line or `--` | the path dim above its lines, the line number in `planMode`, a literal pattern bold in `warning`                                          |
+| git log  | a part runs `git log`, and every line is a one-line entry, or the first line is `commit` and a full hash                                   | the hash in `warning`, the refs in `success`, the subject bold, the other head lines dim                                                  |
+| diff     | the first line starts with `diff`, `---` or `commit` and a full hash, and a hunk head `@@` follows                                         | terminal: file lines bold, hunk heads in `suggestion`, `+` in `success`, `-` in `error`; desktop: the path and one engine `Code` per file |
+| JSON     | the whole text is one JSON object or array                                                                                                 | pretty, keys in `planMode`, strings in `success`, other values in `warning`; 5 levels deep or more as a dim `{…} 2 keys`                  |
+| markdown | every part runs `cat`, `head` or `tail`, `cat` has no option, and one part reads a `.md` or `.markdown` file                               | the engine `Markdown` element                                                                                                             |
+
+- A JSON number keeps the text that the command printed, such as `1.0` or a 20-digit integer.
+- A diff file whose last hunk was cut draws the terminal tokens on the desktop too, because a cut
+  hunk does not parse.
+- `/simple open N` shows the kept record. Its `Full output saved to` line and the line that says
+  the record was cut draw dim. A JSON text that the record cut is plain.
+- `rg` into a pipe prints no line numbers unless the command has `-n`. Such an output is plain.
+- The mocks are in `docs/mocks.md`, section 23.
 
 ## When the engine row stays
 
