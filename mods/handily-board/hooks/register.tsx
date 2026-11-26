@@ -300,14 +300,6 @@ import {
   withoutUsage,
 } from './vitals'
 import {
-  type CopyHost,
-  type CopyKeep,
-  deleteCopy,
-  keepCopy,
-  newCopyKeep,
-  restoredCopy,
-} from './session-copy'
-import {
   type SnapshotHost,
   type SnapshotKeep,
   type SnapshotVariable,
@@ -1593,34 +1585,6 @@ async function countParts($: EngineInterface, keep: PartsKeep): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-function copyHost($: EngineInterface): CopyHost {
-  return {
-    sessionId: () => $.session.id(),
-    transcriptPath: async () => (await $.session.info()).transcriptPath,
-    now: () => $.clock.now(),
-    storeGet: (key) => $.store.get(key),
-    storeSet: (key, value) => $.store.set(key, value),
-    storeDelete: (key) => $.store.delete(key),
-    storeKeys: () => $.store.keys(),
-    debug: (line) => {
-      $.ui.log(line, { to: 'debug' })
-    },
-  }
-}
-
-async function restoreSession(
-  $: EngineInterface,
-  copies: CopyKeep,
-  trend: TrendKeep,
-): Promise<void> {
-  const restored = await restoredCopy(copyHost($), copies, async () => ({
-    list: (await $.state.get(LIST)).value,
-    trend: (await $.state.get(TREND)).value,
-  }))
-  if (restored.list !== undefined) await $.state.set(LIST, restored.list)
-  if (restored.trend !== undefined) await setTrend($, trend, restored.trend)
-}
-
 async function trendOf($: EngineInterface, keep: TrendKeep): Promise<BoardTrend> {
   keep.current ??= (await $.state.get(TREND)).value ?? EMPTY_TREND
   return keep.current
@@ -2106,7 +2070,6 @@ export const register: Register = (on, options) => {
   const request: RequestKeep = { current: NO_REQUEST }
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
   const trend: TrendKeep = { current: undefined }
-  const copies = newCopyKeep()
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
   const failures: FailureKeep = { shown: new Set() }
   const foundPlans: PlanKeep = { found: new Map() }
@@ -2145,7 +2108,6 @@ export const register: Register = (on, options) => {
     await removeStaleWarnings(warnHost($))
     await readUsage($, vitals, snapshots)
     await warnFromVitals($, warnings, vitals.current)
-    await restoreSession($, copies, trend)
     await trendOf($, trend)
     return started
   })
@@ -2186,7 +2148,6 @@ export const register: Register = (on, options) => {
 
   on('turn.start', async ($, e, next) => {
     if (e.agentId === undefined) {
-      await restoreSession($, copies, trend)
       const now = await $.clock.now()
       await noteVitals($, vitals, (current) => withTurnStart(current, now))
       await noteTrend($, trend, trendTurnStarted)
@@ -2265,22 +2226,6 @@ export const register: Register = (on, options) => {
     return result
   })
 
-  on('state.set', { plugin: 'handily-board', key: 'list' }, async ($, e, next) => {
-    const result = await next(e)
-    if (result.deny === undefined && result.value.isSet) {
-      await keepCopy(copyHost($), copies, { list: e.value })
-    }
-    return result
-  })
-
-  on('state.set', { plugin: 'handily-board', key: 'trend' }, async ($, e, next) => {
-    const result = await next(e)
-    if (result.deny === undefined && result.value.isSet) {
-      await keepCopy(copyHost($), copies, { trend: e.value })
-    }
-    return result
-  })
-
   on('session.end', async ($, e, next) => {
     await $.state.set(AGENTS, [])
     steps.last.clear()
@@ -2311,9 +2256,6 @@ export const register: Register = (on, options) => {
       await $.state.set(PLAN_ID, null)
       await resetAgentLists($)
       await resetActivity($)
-    }
-    if (NEW_SESSION_REASONS.has(e.reason)) {
-      await deleteCopy(copyHost($), copies, e.sessionId, e.reason)
     }
     return next(e)
   })

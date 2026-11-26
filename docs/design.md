@@ -1610,54 +1610,6 @@ Inbox (handily-fwkt.8.28), the poll of `claude agents --json`, the per-session p
   desktop surface does not read the store, because `$.fs` on the desktop app is not measured.
 - **Escaping.** Every text from a file goes through `escaped`.
 
-#### The task list and the trend in a background process (handily-2zz7g)
-
-Orchestrator decision 10 of 2026-11-26. Facts measured on Claude Code 2.1.332 on 2026-11-26:
-
-- The Left key at an empty prompt sends the session to the background session list. The session
-  runs on as a background job in another process. Esc attaches the terminal to that process.
-- That process loads the plugins fresh, so `$.state` of handily-board is empty there. The task
-  list (key `list`) and the trend (key `trend`) were lost.
-- `$.store` is shared across processes: a key that one process wrote, another process read.
-- Not proven: that `$.session.id()` in that process answers the id of the session. So the
-  transcript path is the second key.
-
-The design:
-
-- **The copy.** The board keeps one store key for each session, `session-copy:<session id>`,
-  in `hooks/session-copy.ts`. The value is
-  `{ v: 1, sessionId, transcriptPath, at, list, trend }`. `at` is the time of the last write.
-  `list` and `trend` are the values of `$.state`, or null before the first write. One key for
-  each session means that two sessions never write the same key.
-- **The write.** A `state.set` hook on the keys `list` and `trend` writes the copy after a
-  write of `$.state` that the engine kept. So the copy changes where the board already writes
-  the state, and never in a draw. The hook takes the value from the write itself.
-- **The cap.** The store keeps at most 20 copies (`COPIES_AT_MOST`). Before the write of a new
-  copy, the board deletes the oldest copies by `at`. A list of 100 tasks is assumed to be at most
-  about 50 KB of JSON, so 20 copies stay under the limit of 4 MiB for the whole store.
-- **The restore.** At `session.start` and at the start of each main turn, the board reads the
-  copy when `$.state` has no value for `list` or for `trend` in this process. It reads at most
-  once for each session id in each process. It reads `session-copy:<session id>` first. When
-  that key has no copy, it takes the newest copy with the same transcript path, moves it to the
-  key of this session id and deletes the old key. An empty transcript path never matches. The
-  restore sets only the keys that have no value. A normal session has values after its first
-  turn, so it reads no copy on a draw.
-- **The debug line.** At its first restore, in each process, the board logs the session id and
-  the transcript path that it sees to the debug log. A live check of the background list can then
-  show which key found the copy.
-- **A new session.** `session.end` with the reason `clear` or `resume` already empties the
-  trend, and `clear` empties the list. The board then deletes the copy of the ending session id
-  as its last step, with a debug line. A new session has a new id and a new transcript, so it
-  restores no old list.
-- **Validation.** A copy with another `v`, a list that is not tasks with an id, a title, a status
-  and an author, or a trend that is not numbers, is not read. A store that fails logs one debug
-  line in each process. The board then works as before, with no copy.
-- **Out of scope.** The other keys of `$.state`, such as the findings, the plans and the log,
-  are not copied. Record handily-9jaoyk takes them.
-- **Not yet checked live.** It is not measured whether the first process ends its session with
-  the reason `resume` when the session goes to the background list. If it does, the delete runs
-  before the second process reads the copy. The debug line of the delete makes this visible.
-
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
 The person approved the design on 2026-10-27 (handily-5zzxk.2). reply-view draws the tables,
