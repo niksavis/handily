@@ -41,6 +41,25 @@ export function drawsSample(kind: string): boolean {
   return sample !== undefined && diagramOf(sample, SAMPLE_WIDTH, 'terminal').kind === 'drawing'
 }
 
+const HEADER_WORD = /^\S+/u
+const HEADER_SUFFIXES = ['', '-beta', '-v2'] as const
+const KIND_SUFFIX = /-(?:beta|v2)$/u
+const FLOWCHART_ALIAS = 'graph'
+
+export function drawsHeader(word: string, kind: string): boolean {
+  const sample = KIND_SAMPLES[kind]
+  if (sample === undefined) return false
+  const source = sample.replace(HEADER_WORD, word)
+  return diagramOf(source, SAMPLE_WIDTH, 'terminal').kind === 'drawing'
+}
+
+export function headerSpellings(): (readonly [word: string, kind: string])[] {
+  const spelled = MERMAID_KINDS.flatMap((kind) =>
+    HEADER_SUFFIXES.map((suffix) => [kind.replace(KIND_SUFFIX, '') + suffix, kind] as const),
+  )
+  return [...spelled, [FLOWCHART_ALIAS, 'flowchart'] as const]
+}
+
 const HINT_EXCEPTED = /Each Mermaid kind draws except ([^.]+)\./
 
 export function hintKinds(hint: string): string[] {

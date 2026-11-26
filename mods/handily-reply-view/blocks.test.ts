@@ -2,6 +2,7 @@ import type { ConfigRow, On, RenderPropsOf } from 'claude-code'
 import { describe, expect, test, type Engine } from 'claude-code/testing'
 import { displayWidth } from './hooks/width'
 import { expectEngineRow } from './fixtures/engine-row'
+import { CAPABILITY_NOW, capabilityWorld } from './fixtures/capability-world'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const ENGINE_ROW = { type: 'engine', ref: 0 } as const
@@ -47,6 +48,7 @@ function paletteRows(palette: string, theme: string): ConfigRow[] {
 
 function engineBeneath(on: On): World {
   const world: World = { copies: [], debugLogs: [], config: [], pluginConfigs: undefined }
+  capabilityWorld(on, { now: CAPABILITY_NOW })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.messages', () => ({ value: [] }))
   on('config.list', () => ({ value: world.config }))

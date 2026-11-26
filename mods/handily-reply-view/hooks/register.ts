@@ -24,6 +24,7 @@ import {
   type ReplyActions,
   type ReplyMarks,
 } from './draw'
+import { writeCapability, type CapabilityHost, type CapabilityVariable } from './capability'
 import { DEFAULT_REPLY_STYLE, isReplyStyle, REPLY_STYLES, type ReplyStyle } from './frame'
 import { foldId, pressFold, type FoldPort } from './fold-press'
 import { DIAGRAM_HINT } from './hint'
@@ -51,6 +52,7 @@ import {
   turnLine,
 } from './footer'
 import { blocksOf, type Block } from './markdown'
+import { DRAWN_HEADER_WORDS } from './mermaid'
 import { isAsk, structuredMarkdown } from './plain-text'
 import {
   DEFAULT_PROMPT_STYLE,
@@ -598,6 +600,36 @@ async function peerDrawing(
   )
 }
 
+function capabilityVariable(
+  $: EngineInterface,
+  name: CapabilityVariable,
+): Promise<string | undefined> {
+  switch (name) {
+    case 'BASICLY_CAPABILITIES_DIR':
+      return $.env.get('BASICLY_CAPABILITIES_DIR')
+    case 'LOCALAPPDATA':
+      return $.env.get('LOCALAPPDATA')
+    case 'XDG_STATE_HOME':
+      return $.env.get('XDG_STATE_HOME')
+    case 'HOME':
+      return $.env.get('HOME')
+  }
+}
+
+function capabilityHost($: EngineInterface): CapabilityHost {
+  return {
+    now: () => $.clock.now(),
+    variable: (name) => capabilityVariable($, name),
+    isWindows: async () => (await $.session.info()).platform === 'windows',
+    manifest: () => $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`),
+    read: (path) => $.fs.read(path),
+    write: (path, text) => $.fs.write(path, text),
+    log: (reason) => {
+      $.ui.log(`reply-view: the capability file was not written: ${reason}`, { to: 'debug' })
+    },
+  }
+}
+
 type PromptSite = { rail: Rail; style: PromptStyle; defaultMode: ReplyViewMode }
 
 async function promptLookOf(
@@ -648,6 +680,7 @@ export const register: Register = (on, options) => {
   let lastReply: string | undefined
   const railSite: RailSite = { rail: newRail(), version: 0 }
   const messageSite = newMessageSite()
+  const drawnKinds = drawsDiagrams && defaultMode === 'on' ? DRAWN_HEADER_WORDS : []
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
@@ -661,6 +694,7 @@ export const register: Register = (on, options) => {
     await keepGlyphSetting($)
     await keepPaletteSetting($)
     await keepTurnDurationSetting($)
+    await writeCapability(capabilityHost($), drawnKinds)
     return next(e)
   })
 

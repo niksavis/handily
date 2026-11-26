@@ -1,8 +1,15 @@
 import { describe, expect, test } from 'claude-code/testing'
 import { DIAGRAM_HINT, diagramHint, UNDRAWN_STATEMENTS } from './hooks/hint'
-import { DRAWN_DIAGRAM_KINDS, parseMermaid } from './hooks/mermaid'
+import { DRAWN_DIAGRAM_KINDS, DRAWN_HEADER_WORDS, parseMermaid } from './hooks/mermaid'
 import { diagramOf } from './hooks/draw'
-import { drawsSample, hintKinds, KIND_SAMPLES, MERMAID_KINDS } from './fixtures/mermaid-kinds'
+import {
+  drawsHeader,
+  drawsSample,
+  headerSpellings,
+  hintKinds,
+  KIND_SAMPLES,
+  MERMAID_KINDS,
+} from './fixtures/mermaid-kinds'
 
 const UNDRAWN_SAMPLES: Readonly<Record<string, string>> = {
   direction: 'flowchart TD\n  direction LR',
@@ -31,6 +38,22 @@ describe('the drawn diagram kinds', () => {
       undrawn.map((kind) => `${kind} does not draw yet`),
     )
     expect(undrawn.filter((kind) => KIND_SAMPLES[kind] !== undefined)).toEqual([])
+  })
+
+  test('the header words of the capability file are each header word that draws, with and without -beta and -v2, and graph', () => {
+    const drawn = headerSpellings().flatMap(([word, kind]) =>
+      drawsHeader(word, kind) ? [word] : [],
+    )
+    expect([...new Set(drawn)].sort()).toEqual([...DRAWN_HEADER_WORDS].sort())
+    expect(new Set(DRAWN_HEADER_WORDS).size).toBe(DRAWN_HEADER_WORDS.length)
+    expect(DRAWN_DIAGRAM_KINDS.filter((kind) => !DRAWN_HEADER_WORDS.includes(kind))).toEqual([])
+  })
+
+  test('a header word that does not draw stays out of the header words', () => {
+    expect(drawsHeader('flowchart', 'flowchart')).toBe(true)
+    expect(drawsHeader('flowchart-beta', 'flowchart')).toBe(false)
+    expect(drawsHeader('zenuml', 'zenuml')).toBe(false)
+    expect(DRAWN_HEADER_WORDS).not.toContain('flowchart-beta')
   })
 })
 

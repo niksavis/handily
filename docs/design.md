@@ -1803,6 +1803,40 @@ place on the screen. The mocks are `docs/mocks.md` section 21.
   block do not scroll.
 - **Recaps** have no render site (probe P4): engine gap handily-xaxdjy.
 
+#### The capability file (handily-goaeym)
+
+basicly owns the format, capability file v1, agreed on 2026-11-26 between basicly-604lr63 and
+handily-goaeym. reply-view writes the file and reads nothing of basicly but its own file. The
+code is `hooks/capability.ts`. The README of reply-view lists the kinds.
+
+- **The folder.** `BASICLY_CAPABILITIES_DIR` when it is absolute. A relative value is ignored,
+  unlike the usage snapshot of the board, which refuses it. On Windows by
+  `$.session.info().platform`: `LOCALAPPDATA/basicly/capabilities`, else
+  `HOME/AppData/Local/basicly/capabilities` when `LOCALAPPDATA` is empty or not absolute. Else
+  `XDG_STATE_HOME/basicly/capabilities` when `XDG_STATE_HOME` is absolute, else
+  `HOME/.local/state/basicly/capabilities`. Each name is read with `$.env.get` by its literal
+  name. A path that starts with `/` is absolute. A drive path or a network path is absolute only
+  on Windows. The mod asks the platform only when it needs it.
+- **The kinds.** `DRAWN_HEADER_WORDS` in `hooks/mermaid.ts`: each drawn kind, and each other
+  header word that the parser accepts for it, such as `graph` and `xychart-beta`. A test fails
+  when the parser draws a spelling that the list leaves out. The list is empty when the
+  `diagrams` setting or the `mode` setting is `off`.
+- **The version.** `writer_version` is the `version` of `.claude-plugin/plugin.json` under
+  `$.plugin.root`, read with `$.fs.read` at session start, because `$.plugin` has only `name`
+  and `root`.
+- **The write.** At session start only, in place with `$.fs.write`: no rename and no child
+  process. The mod reads the file back and writes when the text with the stored `written_at`
+  differs, or when the age is outside the table below. A file that does not parse counts as
+  changed.
+- **Failures.** A refused write, a folder with no absolute path or a `plugin.json` with no
+  `version` logs one debug line, `reply-view: the capability file was not written:` and the
+  reason. The session start goes on.
+
+| Name | Value | Effect |
+| --- | --- | --- |
+| `FRESH_S` | 43200 | A file older than this is written again |
+| `FUTURE_S` | 300 | A file this far ahead of the clock is written again, because a reader skips it |
+
 ### 4.11 handily-filetree (handily-02b2v)
 
 The person approved the design on 2026-10-27 (handily-02b2v.1). handily-filetree shows a file

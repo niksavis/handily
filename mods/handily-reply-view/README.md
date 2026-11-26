@@ -916,6 +916,57 @@ No hint goes out in these cases:
 - `/replies` turned the reply view off for this session, or the `mode` setting is `off`.
 - The `diagrams` setting is `off`, so a mermaid block draws as its source.
 
+## The capability file
+
+At each session start, the reply view writes `handily-reply-view.json` by capability file v1. basicly
+owns this format (record basicly-604lr63). A basicly skill draws a Mermaid diagram only when a
+fresh capability file lists the kind of the diagram. Without the file, the skill prints plain text,
+so a terminal without the reply view shows no diagram source. The mod does not need basicly. It
+reads no file of basicly, only its own file, to decide whether to write.
+
+- **The folder.** `BASICLY_CAPABILITIES_DIR` when it is absolute. The mod ignores a relative value
+  and uses the default folder. On Windows the default folder is
+  `LOCALAPPDATA/basicly/capabilities`, or `HOME/AppData/Local/basicly/capabilities` when
+  `LOCALAPPDATA` is empty or not absolute. On other systems it is
+  `XDG_STATE_HOME/basicly/capabilities` when `XDG_STATE_HOME` is absolute, else
+  `HOME/.local/state/basicly/capabilities`. A path that starts with `/` is absolute. A drive path
+  such as `C:\` and a network path such as `\\server\share` are absolute only on Windows. The mod
+  reads each variable with `$.env.get`, and asks `$.session.info()` for the platform only when
+  `BASICLY_CAPABILITIES_DIR` does not start with `/`.
+- **The content.** One JSON object on one line:
+
+  | Key              | Value                                                       |
+  | ---------------- | ----------------------------------------------------------- |
+  | `format`         | `basicly.capabilities`                                      |
+  | `version`        | `1`                                                         |
+  | `writer`         | `handily-reply-view`                                        |
+  | `writer_version` | the `version` of the mod's `plugin.json`, read at the start |
+  | `written_at`     | whole epoch seconds of `$.clock`                            |
+  | `renders`        | `{"mermaid": [KIND, ...]}`                                  |
+
+- **The kinds.** Each kind is a header word that the parser of the reply view draws:
+  `flowchart`, `sequenceDiagram`, `stateDiagram-v2`, `classDiagram`, `erDiagram`, `pie`,
+  `xychart`, `gantt`, `gitGraph`, `mindmap`, `timeline`, `journey`, `quadrantChart`, `kanban`,
+  `packet`, `sankey`, `radar-beta`, `treemap-beta`, `block`, `requirementDiagram`, `C4Context`,
+  `C4Container`, `C4Component`, `C4Dynamic`, `C4Deployment`, `architecture-beta`, `graph`,
+  `stateDiagram`, `classDiagram-v2`, `xychart-beta`, `packet-beta`, `sankey-beta`, `treemap` and
+  `block-beta`. The list is `DRAWN_HEADER_WORDS` in `hooks/mermaid.ts`: the words of
+  `DRAWN_DIAGRAM_KINDS`, then `DRAWN_HEADER_ALIASES`. A test in `hint.test.ts` draws the sample of
+  each Mermaid kind under each spelling with and without `-beta` and `-v2`, and under `graph`. It
+  fails when a word that draws is not in the list, or when a word in the list does not draw. When
+  the `diagrams` setting or the `mode` setting is `off`, the list is empty, because the view
+  then draws no diagram when the session starts.
+- **The write.** In place with `$.fs.write`, with no rename and no child process. The mod reads
+  its file back first. It writes only when the content other than `written_at` changed, when
+  `written_at` is more than 12 hours old, or when `written_at` is more than 300 seconds in the
+  future, which a reader skips.
+- **Failures.** A refused write, a folder with no absolute path, or a `plugin.json` with no
+  `version` writes nothing and logs one debug line: `reply-view: the capability file was not
+written:` and the reason. The session starts as before.
+- **Known limits.** `/replies` turns the view off or on for one session and does not write the
+  file again. Two sessions that start at the same moment can write at the same time. A reader that
+  reads a half-written file skips it.
+
 ## A sequence diagram
 
 A `sequenceDiagram` draws under the title line `── mermaid · sequence ──`:

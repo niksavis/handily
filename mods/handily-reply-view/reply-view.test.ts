@@ -41,6 +41,17 @@ import {
 } from './fixtures/generated-diagrams'
 import { expectEngineRow, expectNoEngineRow } from './fixtures/engine-row'
 import {
+  CAPABILITY_NOW,
+  capabilityWorld,
+  TEST_CAPABILITIES_DIR,
+  TEST_CAPABILITY_PATH,
+  TEST_WRITER_VERSION,
+  type CapabilityOptions,
+  type CapabilityWorld,
+} from './fixtures/capability-world'
+import { capabilityText, folderRule } from './hooks/capability'
+import { DRAWN_HEADER_WORDS } from './hooks/mermaid'
+import {
   buttonsLine,
   DIAGRAM_BUTTONS,
   DIAGRAM_RESERVED,
@@ -87,6 +98,7 @@ type World = {
   config: ConfigRow[]
   glyphs: unknown[]
   messages: SessionMessage[]
+  capability: CapabilityWorld
 }
 
 function toastLines(text: string): string[] {
@@ -102,7 +114,7 @@ function toastLines(text: string): string[] {
   return [...lines, line.trimEnd()]
 }
 
-function engineBeneath(on: On): World {
+function engineBeneath(on: On, capability: CapabilityOptions = { now: CAPABILITY_NOW }): World {
   const world: World = {
     copies: [],
     toasts: [],
@@ -116,6 +128,7 @@ function engineBeneath(on: On): World {
     config: [],
     glyphs: [],
     messages: [],
+    capability: capabilityWorld(on, capability),
   }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.messages', () => ({ value: world.messages }))
@@ -1697,7 +1710,7 @@ function framed(label: string, columns = COLUMNS): string[] {
 
 function promptTest(name: string, body: ViewBody): void {
   test(name, async ($, on) => {
-    const world = engineBeneath(on)
+    const world = engineBeneath(on, {})
     mock.clock(on, { now: TYPED_AT })
     await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
     await body(world, $)
@@ -5569,7 +5582,7 @@ type RailWorld = World & {
 
 function railBeneath(on: On): RailWorld {
   const world: RailWorld = {
-    ...engineBeneath(on),
+    ...engineBeneath(on, {}),
     refusedTools: new Set(),
     opens: [],
     closes: [],
@@ -6936,4 +6949,219 @@ describe('peer messages', () => {
       await ui.unmount()
     },
   )
+})
+
+const CAPABILITY_CRITERION =
+  'When a session starts with handily-reply-view loaded, it shall write handily-reply-view.json in the capability folder by capability file v1, listing the exact Mermaid header words its renderer accepts, in place with no rename or child process, and only when the content changed or the file is over 12 hours old (handily-goaeym)'
+const NOW_S = Math.floor(CAPABILITY_NOW / 1000)
+const TWELVE_HOURS_S = 12 * 60 * 60
+const KEPT_CAPABILITY = { writerVersion: TEST_WRITER_VERSION, kinds: DRAWN_HEADER_WORDS }
+
+async function startSession($: Engine): Promise<void> {
+  await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+}
+
+function writtenFiles(world: World): unknown[] {
+  return world.capability.writes.map((write) => JSON.parse(write.text) as unknown)
+}
+
+function capabilityFile(kinds: readonly string[], writtenAt = NOW_S): unknown {
+  return {
+    format: 'basicly.capabilities',
+    version: 1,
+    writer: 'handily-reply-view',
+    writer_version: TEST_WRITER_VERSION,
+    written_at: writtenAt,
+    renders: { mermaid: kinds },
+  }
+}
+
+describe(CAPABILITY_CRITERION, () => {
+  test('writes handily-reply-view.json in the folder of BASICLY_CAPABILITIES_DIR at session start, with each header word that draws and the version of plugin.json', async ($, on) => {
+    const world = engineBeneath(on)
+    await startSession($)
+    expect(world.capability.writes.map((write) => write.path)).toEqual([TEST_CAPABILITY_PATH])
+    expect(writtenFiles(world)).toEqual([capabilityFile(DRAWN_HEADER_WORDS)])
+    expect(world.capability.writes[0]?.text.endsWith('}\n')).toBe(true)
+    expect(DRAWN_HEADER_WORDS).toEqual(
+      expect.arrayContaining(['flowchart', 'graph', 'sequenceDiagram']),
+    )
+    expect(world.capability.infos).toBe(0)
+    expect(world.debugLogs).toEqual([])
+    expect(world.commandDescriptions).toHaveLength(1)
+  })
+
+  test('writes nothing when the stored file has the same content and is 12 hours old', async ($, on) => {
+    const stored = capabilityText(KEPT_CAPABILITY, NOW_S - TWELVE_HOURS_S)
+    const world = engineBeneath(on, {
+      now: CAPABILITY_NOW,
+      files: { [TEST_CAPABILITY_PATH]: stored },
+    })
+    await startSession($)
+    expect(world.capability.reads).toEqual([TEST_CAPABILITY_PATH])
+    expect(world.capability.writes).toEqual([])
+    expect(world.debugLogs).toEqual([])
+  })
+
+  test('writes again with a new written_at when the stored file is more than 12 hours old', async ($, on) => {
+    const stored = capabilityText(KEPT_CAPABILITY, NOW_S - TWELVE_HOURS_S - 1)
+    const world = engineBeneath(on, {
+      now: CAPABILITY_NOW,
+      files: { [TEST_CAPABILITY_PATH]: stored },
+    })
+    await startSession($)
+    expect(writtenFiles(world)).toEqual([capabilityFile(DRAWN_HEADER_WORDS)])
+  })
+
+  test('writes again when the stored file says written_at more than 300 seconds ahead of the clock', async ($, on) => {
+    const stored = capabilityText(KEPT_CAPABILITY, NOW_S + 301)
+    const world = engineBeneath(on, {
+      now: CAPABILITY_NOW,
+      files: { [TEST_CAPABILITY_PATH]: stored },
+    })
+    await startSession($)
+    expect(writtenFiles(world)).toEqual([capabilityFile(DRAWN_HEADER_WORDS)])
+  })
+
+  const CHANGED: readonly [string, string][] = [
+    [
+      'another writer version',
+      capabilityText({ writerVersion: '0.0.1', kinds: DRAWN_HEADER_WORDS }, NOW_S - 60),
+    ],
+    [
+      'other kinds',
+      capabilityText({ writerVersion: TEST_WRITER_VERSION, kinds: ['flowchart'] }, NOW_S - 60),
+    ],
+    ['a half written file', capabilityText(KEPT_CAPABILITY, NOW_S - 60).slice(0, 40)],
+  ]
+  for (const [name, stored] of CHANGED) {
+    test(`writes again when the stored file has ${name}`, async ($, on) => {
+      const world = engineBeneath(on, {
+        now: CAPABILITY_NOW,
+        files: { [TEST_CAPABILITY_PATH]: stored },
+      })
+      await startSession($)
+      expect(writtenFiles(world)).toEqual([capabilityFile(DRAWN_HEADER_WORDS)])
+    })
+  }
+
+  const DRAWS_NOTHING = [
+    ['the diagrams setting is off', { diagrams: 'off' }],
+    ['the mode setting is off', { mode: 'off' }],
+  ] as const
+  for (const [name, options] of DRAWS_NOTHING) {
+    test(`lists no kind when ${name}`, { options }, async ($, on) => {
+      const world = engineBeneath(on)
+      await startSession($)
+      expect(writtenFiles(world)).toEqual([capabilityFile([])])
+    })
+  }
+
+  const FOLDERS = [
+    {
+      name: 'XDG_STATE_HOME/basicly/capabilities when no BASICLY_CAPABILITIES_DIR is set',
+      env: { XDG_STATE_HOME: '/state', HOME: '/home/me' },
+      platform: 'linux',
+      path: '/state/basicly/capabilities/handily-reply-view.json',
+    },
+    {
+      name: 'the default folder when BASICLY_CAPABILITIES_DIR is relative',
+      env: { BASICLY_CAPABILITIES_DIR: 'state/capabilities', XDG_STATE_HOME: '/state' },
+      platform: 'linux',
+      path: '/state/basicly/capabilities/handily-reply-view.json',
+    },
+    {
+      name: 'HOME/.local/state/basicly/capabilities when XDG_STATE_HOME is relative',
+      env: { XDG_STATE_HOME: 'state', HOME: '/home/me' },
+      platform: 'wsl',
+      path: '/home/me/.local/state/basicly/capabilities/handily-reply-view.json',
+    },
+    {
+      name: 'LOCALAPPDATA/basicly/capabilities on Windows',
+      env: { LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local', HOME: 'C:\\Users\\me' },
+      platform: 'windows',
+      path: 'C:\\Users\\me\\AppData\\Local/basicly/capabilities/handily-reply-view.json',
+    },
+    {
+      name: 'HOME/AppData/Local/basicly/capabilities on Windows when LOCALAPPDATA is empty',
+      env: { LOCALAPPDATA: '', HOME: 'C:\\Users\\me' },
+      platform: 'windows',
+      path: 'C:\\Users\\me/AppData/Local/basicly/capabilities/handily-reply-view.json',
+    },
+    {
+      name: 'a drive folder of BASICLY_CAPABILITIES_DIR on Windows',
+      env: { BASICLY_CAPABILITIES_DIR: 'D:\\caps\\', HOME: 'C:\\Users\\me' },
+      platform: 'windows',
+      path: 'D:\\caps/handily-reply-view.json',
+    },
+  ] as const
+  for (const { name, env, platform, path } of FOLDERS) {
+    test(`writes to ${name}`, async ($, on) => {
+      const world = engineBeneath(on, { now: CAPABILITY_NOW, env, platform })
+      await startSession($)
+      const written = world.capability.writes.map((write) => write.path)
+      expect(written).toHaveLength(1)
+      expect(written[0]?.slice(-path.length)).toBe(path)
+      expect(world.debugLogs).toEqual([])
+    })
+  }
+
+  test('writes nothing and logs one debug line when no folder is absolute', async ($, on) => {
+    const world = engineBeneath(on, {
+      now: CAPABILITY_NOW,
+      env: { BASICLY_CAPABILITIES_DIR: 'caps', XDG_STATE_HOME: 'state', HOME: 'home' },
+      platform: 'linux',
+    })
+    await startSession($)
+    expect(world.capability.writes).toEqual([])
+    expect(world.debugLogs).toEqual([
+      'reply-view: the capability file was not written: no absolute XDG_STATE_HOME and no absolute HOME',
+    ])
+    expect(world.logs).toEqual(world.debugLogs)
+  })
+
+  test('a refused write logs one debug line, and the session start goes on', async ($, on) => {
+    const world = engineBeneath(on, {
+      now: CAPABILITY_NOW,
+      writeDenial: 'EACCES: permission denied',
+    })
+    await startSession($)
+    expect(world.debugLogs).toEqual([
+      'reply-view: the capability file was not written: handily-reply-view: $.fs.write: EACCES: permission denied',
+    ])
+    expect(world.commandDescriptions).toHaveLength(1)
+    const ui = await mountReply($, reply(LONG_REPLY))
+    expectNoEngineRow(await ui.drawn())
+    await ui.unmount()
+  })
+
+  test('writes nothing and logs one debug line when plugin.json has no version', async ($, on) => {
+    const world = engineBeneath(on, {
+      now: CAPABILITY_NOW,
+      manifest: '{"name":"handily-reply-view"}',
+    })
+    await startSession($)
+    expect(world.capability.writes).toEqual([])
+    expect(world.debugLogs).toEqual([
+      'reply-view: the capability file was not written: plugin.json has no "version"',
+    ])
+  })
+
+  test('the folder rule takes a drive path as absolute only on Windows, and trims a closing separator', () => {
+    expect(folderRule({ capabilitiesDir: 'C:/caps', home: '/home/me', isWindows: false })).toEqual({
+      folder: '/home/me/.local/state/basicly/capabilities',
+    })
+    expect(folderRule({ capabilitiesDir: '\\\\server\\caps\\', isWindows: true })).toEqual({
+      folder: '\\\\server\\caps',
+    })
+    expect(folderRule({ capabilitiesDir: `${TEST_CAPABILITIES_DIR}/` })).toEqual({
+      folder: TEST_CAPABILITIES_DIR,
+    })
+    expect(folderRule({ localAppData: 'Local', home: 'C:\\Users\\me', isWindows: true })).toEqual({
+      folder: 'C:\\Users\\me/AppData/Local/basicly/capabilities',
+    })
+    expect(folderRule({ isWindows: true })).toEqual({
+      refusal: 'no absolute LOCALAPPDATA and no absolute HOME',
+    })
+  })
 })

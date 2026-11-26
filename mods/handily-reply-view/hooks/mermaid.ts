@@ -100,6 +100,22 @@ export const DRAWN_DIAGRAM_KINDS: readonly string[] = [
   'architecture-beta',
 ]
 
+export const DRAWN_HEADER_ALIASES: readonly string[] = [
+  'graph',
+  'stateDiagram',
+  'classDiagram-v2',
+  'xychart-beta',
+  'packet-beta',
+  'sankey-beta',
+  'treemap',
+  'block-beta',
+]
+
+export const DRAWN_HEADER_WORDS: readonly string[] = [
+  ...DRAWN_DIAGRAM_KINDS,
+  ...DRAWN_HEADER_ALIASES,
+]
+
 export const DIAGRAM_NAMES: Readonly<Record<Exclude<MermaidDiagram['kind'], 'chart'>, string>> = {
   flowchart: 'flowchart',
   sequence: 'sequence diagram',

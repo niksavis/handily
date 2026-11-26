@@ -6,6 +6,7 @@ import { blocksOf, copiedCell, markedCell, PLAIN_MARK, textOfRuns } from './hook
 import { copiedCell as baseCopiedCell, markedCell as baseMarkedCell } from './fixtures/base-cells'
 import { displayWidth } from './hooks/width'
 import { expectNoEngineRow } from './fixtures/engine-row'
+import { CAPABILITY_NOW, capabilityWorld } from './fixtures/capability-world'
 import { headSketch, tableHeadSketch, tableHeadUnder } from './fixtures/buttons'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -55,6 +56,7 @@ function paletteRows(palette: string, theme: string): ConfigRow[] {
 
 function engineBeneath(on: On): World {
   const world: World = { copies: [], debugLogs: [], config: [], pluginConfigs: undefined }
+  capabilityWorld(on, { now: CAPABILITY_NOW })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.messages', () => ({ value: [] }))
   on('config.list', () => ({ value: world.config }))
