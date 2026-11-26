@@ -25,6 +25,25 @@ export const KIND_WORDS: Readonly<Record<OutputKind, string>> = {
 }
 
 const FULL_COMMIT = /^[*|\\/ ]*commit [0-9a-f]{40}/
+const JSON_CHARACTERS_AT_MOST = 1_000_000
+
+type SourceCut = { lines: string[]; left: number }
+
+function sourceCut(lines: readonly string[]): SourceCut {
+  let characters = 0
+  for (const [index, line] of lines.entries()) {
+    characters += line.length + 1
+    if (characters > DRAWN_CHARACTERS_AT_MOST) {
+      return { lines: lines.slice(0, index), left: lines.length - index }
+    }
+  }
+  return { lines: [...lines], left: 0 }
+}
+
+function jsonSource(lines: readonly string[]): string {
+  const size = lines.reduce((sum, line) => sum + line.length + 1, 0)
+  return size > JSON_CHARACTERS_AT_MOST ? '' : lines.join('\n')
+}
 
 type Budget = { left: number }
 
@@ -55,7 +74,7 @@ function styledLines(kind: Kind, lines: readonly string[]): StyledLine[] {
     case 'diff':
       return pieceLines(diffPieces(lines))
     case 'json':
-      return jsonLines(lines.join('\n')) ?? lines.map((line) => plainLine(line))
+      return jsonLines(kind.text) ?? lines.map((line) => plainLine(line))
     default:
       return lines.map((line) => plainLine(line))
   }
@@ -128,8 +147,9 @@ export function callBody(
   surface: RenderSurface,
 ): CallBody {
   const { before, body, after } = keptParts(lines)
-  const shown = body.map(shownLine)
-  const kind = kindOf(command, shown)
+  const cut = sourceCut(body)
+  const shown = cut.lines.map(shownLine)
+  const kind = kindOf(command, shown, jsonSource(body))
   const drawn = bodyOf(kind, shown, surface)
   const dim = (part: readonly string[]): BodyBlock[] =>
     part.length === 0
@@ -138,6 +158,6 @@ export function callBody(
   return {
     kind: kind.kind,
     blocks: [...dim(before), ...drawn.blocks, ...dim(after)],
-    left: drawn.left,
+    left: (kind.kind === 'json' ? 0 : cut.left) + drawn.left,
   }
 }

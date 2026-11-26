@@ -221,17 +221,19 @@ export function isJsonText(text: string): boolean {
 }
 
 export type Kind =
-  { kind: Exclude<OutputKind, 'grep'> } | { kind: 'grep'; query: GrepQuery; rows: GrepRow[] }
+  | { kind: Exclude<OutputKind, 'grep' | 'json'> }
+  | { kind: 'grep'; query: GrepQuery; rows: GrepRow[] }
+  | { kind: 'json'; text: string }
 
-export function kindOf(command: string | null, lines: readonly string[]): Kind {
-  if (command === null || lines.length === 0) return { kind: 'plain' }
+export function kindOf(command: string | null, lines: readonly string[], text: string): Kind {
+  if (command === null) return { kind: 'plain' }
   const parts = partsOf(command)
   if (parts.some((part) => gitVerb(part) === 'log') && isLogText(lines)) return { kind: 'log' }
   if (isDiffText(lines)) return { kind: 'diff' }
   const grep = grepPart(parts)
   const rows = grep === null ? null : grepRows(lines)
   if (grep !== null && rows !== null) return { kind: 'grep', query: grepQuery(grep), rows }
-  if (isJsonText(lines.join('\n'))) return { kind: 'json' }
-  if (isMarkdownRead(parts)) return { kind: 'markdown' }
+  if (isJsonText(text)) return { kind: 'json', text }
+  if (lines.length > 0 && isMarkdownRead(parts)) return { kind: 'markdown' }
   return { kind: 'plain' }
 }

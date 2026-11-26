@@ -892,6 +892,17 @@ on a row whose call ended after the tab showed it running shows the ended call, 
 press clears it. The setting that expands a call inline waits for probe P8, because a mod gets no
 signal that the view is scrolled up.
 
+The output kinds of the call tab (handily-xuhjgx, decided 2026-11-20). The call tab draws grep
+and rg matches, git log lines, a unified diff, JSON and markdown in a format of their own, and
+any other output as plain text. The mod reads the kind from the command and the text and never
+guesses: grep, git log and markdown need the command, and every line must have the shape. A
+diff draws with the tokens of the mod on the terminal, and with one engine `Code` element for
+each whole file on the desktop, because a cut hunk does not parse. Markdown draws with the engine
+`Markdown` element. JSON keeps the number text as printed, and a level 5 deep or more is one dim
+mark. A long line wraps at a cell after a dim `↳`. The tab works on the first 60000 characters
+of the output only, keeps the drawn body per call, and stops at about 12000 elements, because
+the engine refuses a tree of more than 20000 nodes. The mocks are in `docs/mocks.md`, section 23.
+
 Hand-off to other mods. The order of two plugins in the `user` tier is not in the types. In a
 live check on 2.1.300 the chain was `handily-board`, `handily-reply-view`,
 `handily-simple-view`, `handily-quiet-items`, then `cc-plugin-diff@builtin`. So the `ToolUse`

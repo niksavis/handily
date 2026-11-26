@@ -4,6 +4,7 @@ const TAB_STOP = 8
 // eslint-disable-next-line no-control-regex -- an ANSI colour code starts with the escape character
 const COLOR_CODE = /\u001b\[[0-9;:]*m/g
 const HIDDEN_CHARACTER = /(?!\t)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu
+const HAS_HIDDEN_CHARACTER = /(?!\t)[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u
 const EMOJI_JOINER = /^[\u200D\u{E0020}-\u{E007F}]$/u
 
 function escapedUnits(text: string): string {
@@ -21,6 +22,7 @@ function shownGrapheme(grapheme: string): string {
 }
 
 export function shownText(text: string): string {
+  if (!HAS_HIDDEN_CHARACTER.test(text)) return text
   return graphemesOf(text)
     .map(({ grapheme }) => shownGrapheme(grapheme))
     .join('')
@@ -45,5 +47,6 @@ function shownWithTabs(line: string): string {
 
 export function shownLine(line: string): string {
   const overwritten = line.replace(COLOR_CODE, '').split('\r').at(-1) ?? ''
+  if (!overwritten.includes('\t') && !HAS_HIDDEN_CHARACTER.test(overwritten)) return overwritten
   return shownWithTabs(overwritten)
 }

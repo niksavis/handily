@@ -10728,8 +10728,8 @@ $ rg -n pool_size config
 ── grep ─────────────────────────────────
 config/prod.yaml
 12  pool_size: 40
-31  # pool_size is per worker, see docs
-↳ /pools.md
+31  # pool_size is per worker, see docs/p
+↳ ools.md
 config/dev.yaml
 4  pool_size: 4
 ─────────────────────────────────────────
@@ -10750,8 +10750,10 @@ and `--` dim; `↳` dim; the kind word dim, as the rule.
 ── grep ────────────────────────────
 config/prod.yaml
 12  pool_size: 40
-31  # pool_size is per worker, se
-↳ e docs/pools.md
+31  # pool_size is per worker, see d
+↳ ocs/pools.md
+config/dev.yaml
+4  pool_size: 4
 ```
 
 Colours: as 23.1.
@@ -10761,9 +10763,9 @@ Colours: as 23.1.
 ```text
 $ git log --oneline --decorate -2
 ── git log ──────────────────────────────
-18789f4 (HEAD -> main, origin/main) feat
-↳ (simple-view): clear the call tab on a
-↳  second press (handily-nhkdgm)
+18789f4 (HEAD -> main, origin/main) feat(
+↳ simple-view): clear the call tab on a s
+↳ econd press (handily-nhkdgm)
 45c0f6a chore(worktree): merge kit-0493 (
 ↳ handily-5cyck0)
 ```
@@ -10771,8 +10773,8 @@ $ git log --oneline --decorate -2
 ```text
 $ git log -1
 ── git log ──────────────────────────────
-commit 18789f482ebfff4c2b5eab7e6857db98f
-↳ 81d710c
+commit 18789f482ebfff4c2b5eab7e6857db98f8
+↳ 1d710c
 Author: A Person <person@example.com>
 Date:   Thu Nov 26 10:14:45 2026 +0100
 
@@ -10783,15 +10785,15 @@ Date:   Thu Nov 26 10:14:45 2026 +0100
 Colours: the hash in `warning`; the refs in `success`; the subject bold; `commit`, the
 `Author:`, `Merge:` and `Date:` lines and the graph marks `* | \ /` dim.
 
+- The rows come from the tests of the build, so a wrap can cut a word in two.
 - `git log -p` and `git show` draw the diff under each entry as 23.5 draws it.
 
 ### 23.4 git log, 40 columns
 
 ```text
 ── git log ─────────────────────────
-18789f4 (HEAD -> main) feat(simple-
-↳ view): clear the call tab on a se
-↳ cond press (handily-nhkdgm)
+45c0f6a chore(worktree): merge kit-0
+↳ 493 (handily-5cyck0)
 ```
 
 Colours: as 23.3.
@@ -10811,6 +10813,7 @@ index 1a2b3c4..5d6e7f8 100644
 -  'No call is shown here yet.'
 +  'No call is shown here.'
 +const CLOSED = 'closed'
+ const NEXT = 1
 ```
 
 Colours: the `diff`, `index`, `---` and `+++` lines bold; the hunk head in `suggestion`; a
@@ -10821,11 +10824,12 @@ Colours: the `diff`, `index`, `---` and `+++` lines bold; the hunk head in `sugg
 ```text
 ── diff ─────────────────────────────────
 hooks/viewer.ts
-@@ -12,3 +12,4 @@                         (engine Code, format diff: markers, colours)
+@@ -12,3 +12,4 @@ const RULE = '─'      (engine Code, format diff: markers, colours)
  12 const EMPTY_TEXT =
 -13   'No call is shown here yet.'
 +13   'No call is shown here.'
 +14 const CLOSED = 'closed'
+ 15 const NEXT = 1
 ```
 
 Colours: the path bold; the rest is the colour of the engine.
@@ -10838,11 +10842,17 @@ Colours: the path bold; the rest is the colour of the engine.
 
 ```text
 ── diff ────────────────────────────
+diff --git a/hooks/viewer.ts b/hooks
+↳ /viewer.ts
+index 1a2b3c4..5d6e7f8 100644
 --- a/hooks/viewer.ts
 +++ b/hooks/viewer.ts
 @@ -12,3 +12,4 @@ const RULE = '─'
+ const EMPTY_TEXT =
 -  'No call is shown here yet.'
 +  'No call is shown here.'
++const CLOSED = 'closed'
+ const NEXT = 1
 ```
 
 Colours: as 23.5.
@@ -10868,7 +10878,9 @@ $ gh api repos/acme/app
       }
     }
   },
-  "labels": []
+  "labels": [],
+  "ok": true,
+  "none": null
 }
 ```
 
@@ -10887,8 +10899,8 @@ Colours: a key in `planMode`; a string in `success`; a number, `true`, `false` a
 ── json ────────────────────────────
 {
   "name": "app",
-  "description": "A long description th
-↳ at goes on",
+  "description": "A long description
+↳  that goes on",
   "labels": []
 }
 ```

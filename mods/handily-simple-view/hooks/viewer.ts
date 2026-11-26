@@ -176,10 +176,18 @@ function unreadBlocks(unread: string): BodyBlock[] {
 
 type ViewerBody = { word: string; blocks: BodyBlock[]; left: number }
 
+const drawnBodies = new WeakMap<ViewedCall, Map<RenderSurface, ViewerBody>>()
+
 function bodyBlocks(site: ViewerSite, call: ViewedCall, surface: RenderSurface): ViewerBody {
   if (site.unread !== null) return { word: '', blocks: unreadBlocks(site.unread), left: 0 }
+  const bodies = drawnBodies.get(call) ?? new Map<RenderSurface, ViewerBody>()
+  const kept = bodies.get(surface)
+  if (kept !== undefined) return kept
   const body = callBody(call.command, call.output.lines, surface)
-  return { word: KIND_WORDS[body.kind], blocks: body.blocks, left: body.left }
+  const drawn = { word: KIND_WORDS[body.kind], blocks: body.blocks, left: body.left }
+  bodies.set(surface, drawn)
+  drawnBodies.set(call, bodies)
+  return drawn
 }
 
 function rowNodes(row: StyledLine): number {

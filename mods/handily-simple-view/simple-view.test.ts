@@ -2170,12 +2170,13 @@ async function kindTab(
 }
 
 describe('the call tab by output kind', () => {
-  for (const columns of BODY_COLUMNS) {
+  const seats = SURFACES.flatMap((surface) => BODY_COLUMNS.map((columns) => ({ surface, columns })))
+  for (const { surface, columns } of seats) {
     viewTest(
-      `grep matches draw the path dim, the line number and the marked match at body ${String(columns)}`,
+      `grep matches draw the path dim, the line number and the marked match at body ${String(columns)} on ${surface}`,
       async (world, $) => {
         const props = await bashProps(world, $, GREP_RUN, answered(`${GREP_STDOUT}\n`))
-        const tab = await tabAt($, props, columns)
+        const tab = await tabAt($, props, columns, surface)
         expect(tab.top).toBe(rule('grep', columns))
         expect(tab.head).toEqual([
           'Bash · exit 0 · 0.0s',
@@ -2202,7 +2203,7 @@ describe('the call tab by output kind', () => {
     )
 
     viewTest(
-      `a git log draws the hash, the refs and the subject at body ${String(columns)}`,
+      `a git log draws the hash, the refs and the subject at body ${String(columns)} on ${surface}`,
       async (world, $) => {
         const oneLine = await kindTab(
           world,
@@ -2210,13 +2211,14 @@ describe('the call tab by output kind', () => {
           'git log --oneline --decorate -2',
           LOG_ONE_LINE_STDOUT,
           columns,
+          surface,
         )
         expect(oneLine.top).toBe(rule('git log', columns))
         expect(oneLine.lines).toEqual([
           '[warning:18789f4][success: (HEAD -> main, origin/main)][bold: feat(simple-view): clear the call tab on a second press (handily-nhkdgm)]',
           '[warning:45c0f6a][bold: chore(worktree): merge kit-0493 (handily-5cyck0)]',
         ])
-        const full = await kindTab(world, $, 'git log -1', LOG_FULL_STDOUT, columns)
+        const full = await kindTab(world, $, 'git log -1', LOG_FULL_STDOUT, columns, surface)
         expect(full.lines).toEqual([
           '[dim:commit ][warning:18789f482ebfff4c2b5eab7e6857db98f81d710c]',
           '[dim:Author: A Person <person@example.com>]',
@@ -2230,31 +2232,40 @@ describe('the call tab by output kind', () => {
     )
 
     viewTest(
-      `a unified diff draws its own tokens on the terminal at body ${String(columns)}`,
+      `JSON draws pretty, keeps its numbers and folds deep levels at body ${String(columns)} on ${surface}`,
       async (world, $) => {
-        const tab = await kindTab(world, $, 'git diff', DIFF_STDOUT, columns)
-        expect(tab.top).toBe(rule('diff', columns))
-        expect(tab.lines).toEqual(DIFF_LINES)
-        expect(tab.codes).toEqual([])
-      },
-    )
-
-    viewTest(
-      `JSON draws pretty, keeps its numbers and folds deep levels at body ${String(columns)}`,
-      async (world, $) => {
-        const tab = await kindTab(world, $, 'gh api repos/acme/app', JSON_STDOUT, columns)
+        const tab = await kindTab(world, $, 'gh api repos/acme/app', JSON_STDOUT, columns, surface)
         expect(tab.top).toBe(rule('json', columns))
         expect(tab.lines).toEqual(JSON_LINES)
       },
     )
 
     viewTest(
-      `markdown that cat prints draws with the Markdown element at body ${String(columns)}`,
+      `markdown that cat prints draws with the Markdown element at body ${String(columns)} on ${surface}`,
       async (world, $) => {
-        const tab = await kindTab(world, $, 'cat docs/notes.md', '# Notes\n\n- one\n- two', columns)
+        const tab = await kindTab(
+          world,
+          $,
+          'cat docs/notes.md',
+          '# Notes\n\n- one\n- two',
+          columns,
+          surface,
+        )
         expect(tab.top).toBe(rule('markdown', columns))
         expect(tab.markdowns).toEqual([{ text: '# Notes\n\n- one\n- two' }])
         expect(tab.rows).toEqual([])
+      },
+    )
+  }
+
+  for (const columns of BODY_COLUMNS) {
+    viewTest(
+      `a unified diff draws its own tokens on the terminal at body ${String(columns)}`,
+      async (world, $) => {
+        const tab = await kindTab(world, $, 'git diff', DIFF_STDOUT, columns)
+        expect(tab.top).toBe(rule('diff', columns))
+        expect(tab.lines).toEqual(DIFF_LINES)
+        expect(tab.codes).toEqual([])
       },
     )
   }
@@ -2425,18 +2436,20 @@ describe('the call tab by output kind', () => {
     },
   )
 
-  viewTest(
-    'a long plain line wraps at the body with a dim marker on each next row',
-    async (world, $) => {
-      const tab = await kindTab(world, $, 'cat long.txt', 'x'.repeat(80), INLINE_BODY)
-      expect(tab.rows).toEqual([
-        'x'.repeat(36),
-        `[dim:↳ ]${'x'.repeat(34)}`,
-        `[dim:↳ ]${'x'.repeat(10)}`,
-      ])
-      expect(tab.lines).toEqual(['x'.repeat(80)])
-    },
-  )
+  for (const surface of SURFACES) {
+    viewTest(
+      `a long plain line wraps at the body with a dim marker on each next row on ${surface}`,
+      async (world, $) => {
+        const tab = await kindTab(world, $, 'cat long.txt', 'x'.repeat(80), INLINE_BODY, surface)
+        expect(tab.rows).toEqual([
+          'x'.repeat(36),
+          `[dim:↳ ]${'x'.repeat(34)}`,
+          `[dim:↳ ]${'x'.repeat(10)}`,
+        ])
+        expect(tab.lines).toEqual(['x'.repeat(80)])
+      },
+    )
+  }
 
   viewTest(
     'a kept record cut at 8000 characters draws its cut line dim and its JSON plain',
