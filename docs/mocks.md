@@ -525,7 +525,7 @@ After:
 
 ```text
 ● List the mods  ~ls~  +exit 0+  ~7 lines~  ~1.1s~                                              (live)
-● sleep 4 …  ~sleep~  +exit 0+  ~1 line~  ~4.3s~                                               (live)
+● sleep 4 …  +exit 0+  ~1 line~  ~4.3s~                                                        (live)
 ● List a missing folder  ~ls~  #exit 2#  ~0.4s~                                                 [ more ] [ copy ]
   #ls: cannot access '/nonexistent-folder': No such file or directory#
 ● Run the build  ~tsc~  #exit 127#  ~command not found~  ~0.1s~                                 [ more ] [ copy ]
@@ -10420,7 +10420,9 @@ wraps to two lines.
 ● Run the board tests  npm  exit 1  2.0s                                                               [ more ] [ copy ]
   FAIL src/board.test.ts > closes a task: expected "done", received "open"
 ● Fail  false  exit 1
-  no error text
+  no output
+● exit 3
+  no output
 ● Edit  hooks/transcript.ts  error
   File has not been read yet. Read it first before writing to it.
 ● board · task_update  7  error
@@ -10428,7 +10430,8 @@ wraps to two lines.
 ```
 
 Colours: `●`, `exit 1`, `error` and the reason in `error`; the program and the time dim;
-`no error text` dim; buttons dim.
+`no output` dim; buttons dim. A row with no description leaves out the program that is the
+first word of its command, and `exit 3` reads once (handily-cwzxm1).
 
 - A call inside a REPL script reaches the row with `output` undefined (probe P1). The reason
   then comes from the error text that `tool.call` answered for the same tool use id.
