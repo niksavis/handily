@@ -112,9 +112,7 @@ _WRITES: dict[str, Callable[[argparse.Namespace, Any], Sequence[Any]]] = {
         if_seq=a.if_seq,
         claimant=_holder(a),
     ),
-    "close": lambda a, c: commands.close(
-        a.directory, a.record, reason=a.reason, resolution=a.resolution, context=c
-    ),
+    "close": lambda a, c: commands.closing.run(a, c, commands),
     "review": lambda a, c: commands.record_process(
         a.directory, a.record, json.loads(a.evidence), redact=c
     ),
@@ -354,6 +352,7 @@ def _run_command(
             "record": record,
             "events": [event.id for event in appended],
             "appended": bool(appended),
+            **commands.parent_progress.started(appended, record),
             **_owed_of(vault_cli.view_of(args, clock), record),
         }
     records = queries.listed(args)
