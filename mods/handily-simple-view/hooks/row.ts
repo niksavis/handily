@@ -44,6 +44,7 @@ const RESULT_INDENT = 2
 const REASON_BESIDE_FROM_COLUMNS = 60
 const REASON_LINES_AT_MOST = 2
 const NO_REASON_TEXT = 'no error text'
+const NO_OUTPUT_TEXT = 'no output'
 const CUT_MARK = '…'
 const EXIT_NAMES: Readonly<Record<number, string>> = {
   126: 'not executable',
@@ -219,10 +220,10 @@ export function isReasonCut(look: RowLook, reason: string): boolean {
   return reason !== '' && reasonLayout(look, reason).isCut
 }
 
-function reasonLines(look: RowLook, reason: string): RenderElement[] {
+function reasonLines(look: RowLook, reason: string, emptyText: string): RenderElement[] {
   const { Text } = look.elements
   if (reason === '') {
-    return [underRow(look, 'reason', Text({ dimColor: true, children: NO_REASON_TEXT }))]
+    return [underRow(look, 'reason', Text({ dimColor: true, children: emptyText }))]
   }
   return reasonLayout(look, reason).lines.map((text, index) =>
     underRow(
@@ -259,13 +260,14 @@ function withReason(
   cells: { leading: Cell[]; time: Cell },
   reason: string,
   buttons: RowButtons | null,
+  emptyText: string = NO_REASON_TEXT,
 ): RenderElement {
   const { Box } = look.elements
   const actions = rowButtons(look, buttons)
   const row = isNarrow(look)
     ? line(look, 'row', marker, cells.leading, actions)
     : line(look, 'row', marker, [...cells.leading, cells.time], actions)
-  return Box({ flexDirection: 'column', children: [row, ...reasonLines(look, reason)] })
+  return Box({ flexDirection: 'column', children: [row, ...reasonLines(look, reason, emptyText)] })
 }
 
 function leastCells(cell: Cell): number {
@@ -325,6 +327,14 @@ const MARKERS: Readonly<Record<BashState['kind'], ThemeKey>> = {
   denied: 'error',
 }
 
+function firstWord(text: string): string {
+  return text.split(' ')[0] ?? ''
+}
+
+function isStateLabel(view: BashView): boolean {
+  return view.state.kind === 'exit' && view.label === `exit ${String(view.state.code)}`
+}
+
 export function bashRow(
   look: RowLook,
   view: BashView,
@@ -338,7 +348,10 @@ export function bashRow(
       ? Math.min(displayWidth(view.label), LABEL_KEPT_CELLS)
       : undefined,
   }
-  const program: Cell = { text: view.program, style: { dimColor: true } }
+  const program: Cell = {
+    text: firstWord(view.label) === view.program ? '' : view.program,
+    style: { dimColor: true },
+  }
   const time: Cell = { text: timeText(view.elapsedMs), style: { dimColor: true } }
   const state =
     view.state.kind === 'denied'
@@ -347,7 +360,9 @@ export function bashRow(
   const marker = MARKERS[view.state.kind]
   const reason = reasonOf(view.state)
   if (reason !== null) {
-    return withReason(look, marker, { leading: [label, program, ...state], time }, reason, buttons)
+    const leading = isStateLabel(view) ? [program, ...state] : [label, program, ...state]
+    const emptyText = view.state.kind === 'exit' ? NO_OUTPUT_TEXT : NO_REASON_TEXT
+    return withReason(look, marker, { leading, time }, reason, buttons, emptyText)
   }
   const actions = buttons === null ? null : foldButtons(look, buttons.label, buttons.actions)
   const cells = [label, program, ...state, time]

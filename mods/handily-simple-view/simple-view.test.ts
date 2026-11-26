@@ -806,17 +806,20 @@ describe('Bash row', () => {
     )
   })
 
-  viewTest('shows exit N and no error text when no error line follows', async (world, $) => {
-    world.answer = () => failed('Error: Exit code 1')
-    const input = { command: 'false', description: 'Fail' }
-    const id = await runBash(world, $, input)
-    expect(
-      await texts($, 'terminal', {
-        component: 'ToolUse',
-        props: useProps(id, 'Bash', input, world.answer(input)),
-      }),
-    ).toEqual(['● Fail false exit 1', 'no error text'])
-  })
+  viewTest(
+    'shows exit N and a dim no output line when the call printed nothing',
+    async (world, $) => {
+      world.answer = () => failed('Error: Exit code 1')
+      const input = { command: 'false', description: 'Fail' }
+      const id = await runBash(world, $, input)
+      expect(
+        await texts($, 'terminal', {
+          component: 'ToolUse',
+          props: useProps(id, 'Bash', input, world.answer(input)),
+        }),
+      ).toEqual(['● Fail false exit 1', 'no output'])
+    },
+  )
 
   for (const surface of SURFACES) {
     viewTest(
@@ -1067,9 +1070,7 @@ describe('Bash row', () => {
       }
       const marker = MARKER[surface]
       expect(await rowOf({})).toEqual([`${marker}Bash  ~…~`])
-      expect(await rowOf({ command: 'sleep 2; seq 1 5' })).toEqual([
-        `${marker}sleep 2 …  ~sleep~  ~…~`,
-      ])
+      expect(await rowOf({ command: 'sleep 2; seq 1 5' })).toEqual([`${marker}sleep 2 …  ~…~`])
       expect(
         await rowOf({ command: 'sleep 2; seq 1 5', description: 'Count to five slowly' }),
       ).toEqual([`${marker}Count to five slowly  ~sleep~  ~…~`])
@@ -1793,14 +1794,20 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
     )
 
     viewTest(
-      `an inner call with an empty error text draws no error text under the row on ${surface}`,
+      `an inner call with an empty error text draws exit N once over a no output line on ${surface}`,
       async (world, $) => {
         world.answer = () => failed('Error: Exit code 1')
         const input = { command: 'false', description: 'Fail' }
         const id = await runBash(world, $, input)
         expect(
           await texts($, surface, { component: 'ToolUse', props: inner(id, 'Bash', input) }),
-        ).toEqual([`${MARKER[surface]}Fail false exit 1`, 'no error text'])
+        ).toEqual([`${MARKER[surface]}Fail false exit 1`, 'no output'])
+        world.answer = () => failed('Error: Exit code 3')
+        const bare = { command: 'exit 3' }
+        const bareId = await runBash(world, $, bare)
+        expect(
+          await texts($, surface, { component: 'ToolUse', props: inner(bareId, 'Bash', bare) }),
+        ).toEqual([`${MARKER[surface]}exit 3`, 'no output'])
       },
     )
   }
@@ -2435,7 +2442,7 @@ describe('row labels with a control character', () => {
     const input = { command: 'printf one\rtwo' }
     const id = await runBash(world, $, input)
     expect(await rowLines($, useProps(id, 'Bash', input, world.answer(input)))).toEqual([
-      '+●+ printf one\\u000dtwo  ~printf~  +exit 0+  ~0 lines~',
+      '+●+ printf one\\u000dtwo  +exit 0+  ~0 lines~',
     ])
   })
 

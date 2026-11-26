@@ -100,8 +100,11 @@ section 21. The design is in `docs/design.md`, section 4.8.
   `tool.call`, keyed by the tool use id, for the last 50 failed calls of the session. The row
   takes its reason from that text. A failed call that the mod did not keep, such as a call of a
   subagent or of an ended session, keeps the row of the engine.
-- The reason line leaves out `Error:` and the `<tool_use_error>` tags. A failed call with no
-  error text shows a dim `no error text` line.
+- The reason line leaves out `Error:` and the `<tool_use_error>` tags. A call that ended with an
+  exit code and printed nothing shows a dim `no output` line. Another failed call with no error
+  text shows a dim `no error text` line.
+- A row with no description shows the command, so it leaves out the program when the program is
+  the first word of the command. A call that runs `exit 3` reads `exit 3` once.
 - Any other errored `Bash` text that starts with `Error:`, is not an exit code and is not a
   denial shows `error`, and the first non-empty line after `Error:` goes under the row.
 - The reason of a failed call, the line under the row, draws in the error colour, indented under
