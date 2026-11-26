@@ -10496,7 +10496,7 @@ Colours: the head bold; the command, the rules and the count dim.
 - Keys: `c` copies, `p` shows the previous kept call that failed, `n` the next one.
   `< error` and `error >` draw only when such a call is kept.
 - `/simple open N` and `/simple open error` open the tab with the keys and show the kept record,
-  whose head adds `call N of M`.
+  whose head adds `call N of M`. Section 23.0 gives the end word of the head.
 - Empty: `No call is shown here yet. Press more on a tool row, or run /simple open.` Superseded
   by the empty text of 22.1.
 - A saved output that cannot be read: `The saved output could not be read.` and the path.
@@ -10709,13 +10709,18 @@ The kinds, and when the mod draws each one:
 
 - The head keeps the command, the exit code and the time, as in 21.4.
 - The top rule names the kind: `── grep ───`. The plain kind keeps the plain rule.
-- A line wider than the body goes on in the next row after a dim `↳` and one space. Each row
-  is cut at a cell, not at a word, so the text stays as the command printed it. `Markdown`
-  and `Code` wrap by themselves and draw no marker.
+- A line wider than the body goes on in the next row after a dim `↳` and one space. A row
+  breaks after the last space that fits, and the space stays at the end of the row. Only a word
+  longer than the row is cut inside the word, such as a full hash. `Markdown` and `Code` wrap
+  by themselves and draw no marker.
 - The count under the body counts the lines of the output, not the rows drawn.
 - `copy` copies the output as the command printed it.
-- `/simple open N` shows the kept record. A `Full output saved to` line and the line that says
-  the record was cut draw dim, apart from the kind. A JSON text that the record cut stays plain.
+- `/simple open N` shows the kept record. Its head names the end of the call as the row does,
+  such as `Bash · exit 0 · 0.7s · call 5 of 5`, `Bash · No matches found · 0.2s · call 2 of 5`
+  or `Bash · exit 2 · 0.4s · call 1 of 5`. When the engine saved the output to a file, the tab
+  reads the file. When the file cannot be read, the tab says so and names the path. The line
+  that says the record was cut draws dim, apart from the kind. A JSON text that the record cut
+  stays plain.
 - The tab draws at most 60000 characters, as before, and at most about 12000 elements, because the
   engine refuses a tree of more than 20000 nodes. The last row says how many lines are not drawn.
 
@@ -10728,8 +10733,8 @@ $ rg -n pool_size config
 ── grep ─────────────────────────────────
 config/prod.yaml
 12  pool_size: 40
-31  # pool_size is per worker, see docs/p
-↳ ools.md
+31  # pool_size is per worker, see
+↳ docs/pools.md
 config/dev.yaml
 4  pool_size: 4
 ─────────────────────────────────────────
@@ -10750,8 +10755,8 @@ and `--` dim; `↳` dim; the kind word dim, as the rule.
 ── grep ────────────────────────────
 config/prod.yaml
 12  pool_size: 40
-31  # pool_size is per worker, see d
-↳ ocs/pools.md
+31  # pool_size is per worker, see
+↳ docs/pools.md
 config/dev.yaml
 4  pool_size: 4
 ```
@@ -10763,37 +10768,43 @@ Colours: as 23.1.
 ```text
 $ git log --oneline --decorate -2
 ── git log ──────────────────────────────
-18789f4 (HEAD -> main, origin/main) feat(
-↳ simple-view): clear the call tab on a s
-↳ econd press (handily-nhkdgm)
-45c0f6a chore(worktree): merge kit-0493 (
-↳ handily-5cyck0)
+18789f4 (HEAD -> main, origin/main)
+↳ feat(simple-view): clear the call tab
+↳ on a second press (handily-nhkdgm)
+45c0f6a chore(worktree): merge kit-0493
+↳ (handily-5cyck0)
 ```
 
 ```text
 $ git log -1
 ── git log ──────────────────────────────
-commit 18789f482ebfff4c2b5eab7e6857db98f8
-↳ 1d710c
+commit
+↳ 18789f482ebfff4c2b5eab7e6857db98f81d710
+↳ c
 Author: A Person <person@example.com>
 Date:   Thu Nov 26 10:14:45 2026 +0100
 
-    feat(simple-view): clear the call tab
-↳  on a second press (handily-nhkdgm)
+    feat(simple-view): clear the call
+↳ tab on a second press (handily-nhkdgm)
 ```
 
 Colours: the hash in `warning`; the refs in `success`; the subject bold; `commit`, the
 `Author:`, `Merge:` and `Date:` lines and the graph marks `* | \ /` dim.
 
-- The rows come from the tests of the build, so a wrap can cut a word in two.
+- The rows come from the tests of the build. The 40-digit hash is longer than the row, so it is
+  cut inside the word.
 - `git log -p` and `git show` draw the diff under each entry as 23.5 draws it.
 
 ### 23.4 git log, 40 columns
 
 ```text
 ── git log ─────────────────────────
-45c0f6a chore(worktree): merge kit-0
-↳ 493 (handily-5cyck0)
+18789f4 (HEAD -> main, origin/main)
+↳ feat(simple-view): clear the call
+↳ tab on a second press
+↳ (handily-nhkdgm)
+45c0f6a chore(worktree): merge
+↳ kit-0493 (handily-5cyck0)
 ```
 
 Colours: as 23.3.
@@ -10803,8 +10814,8 @@ Colours: as 23.3.
 ```text
 $ git diff
 ── diff ─────────────────────────────────
-diff --git a/hooks/viewer.ts b/hooks/view
-↳ er.ts
+diff --git a/hooks/viewer.ts
+↳ b/hooks/viewer.ts
 index 1a2b3c4..5d6e7f8 100644
 --- a/hooks/viewer.ts
 +++ b/hooks/viewer.ts
@@ -10842,8 +10853,8 @@ Colours: the path bold; the rest is the colour of the engine.
 
 ```text
 ── diff ────────────────────────────
-diff --git a/hooks/viewer.ts b/hooks
-↳ /viewer.ts
+diff --git a/hooks/viewer.ts
+↳ b/hooks/viewer.ts
 index 1a2b3c4..5d6e7f8 100644
 --- a/hooks/viewer.ts
 +++ b/hooks/viewer.ts
@@ -10899,8 +10910,8 @@ Colours: a key in `planMode`; a string in `success`; a number, `true`, `false` a
 ── json ────────────────────────────
 {
   "name": "app",
-  "description": "A long description
-↳  that goes on",
+  "description": "A long
+↳ description that goes on",
   "labels": []
 }
 ```

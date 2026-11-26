@@ -11,7 +11,15 @@ import type { SimpleViewCall, SimpleViewFold, SimpleViewMode } from '../types'
 import { codeModeNote } from './code-mode'
 import { commandLabel, programOf } from './command'
 import { COPY_FAILED, copiedParts, copyRefusalParts } from './copy-toast'
-import { KEPT_CALLS, callRecord, elapsedText, showText, slotOf, type CallFacts } from './detail'
+import {
+  KEPT_CALLS,
+  callRecord,
+  elapsedText,
+  savedPathOf,
+  showText,
+  slotOf,
+  type CallFacts,
+} from './detail'
 import {
   DRAWN_CHARACTERS_AT_MOST,
   callOutput,
@@ -27,6 +35,7 @@ import {
   bashChanges,
   bashEnd,
   deniedCall,
+  endWord,
   errorReason,
   erroredText,
   fileEdit,
@@ -402,18 +411,8 @@ type DrawSite = {
 }
 
 function stateWord(state: BashState): string {
-  switch (state.kind) {
-    case 'pending':
-      return '…'
-    case 'running':
-      return 'running'
-    case 'done':
-      return state.interpretation ?? 'exit 0'
-    case 'exit':
-      return `exit ${String(state.code)}`
-    default:
-      return state.kind
-  }
+  if (state.kind === 'pending') return '…'
+  return state.kind === 'running' ? 'running' : endWord(state)
 }
 
 function headOf(tool: string, word: string, elapsedMs: number | null): string {
@@ -791,7 +790,7 @@ function parsedInput(input: string): Record<string, unknown> | null {
 function keptView({ back, record }: KeptCall, kept: number): ViewedCall {
   const input = parsedInput(record.input)
   const isBash = record.tool === 'Bash' && input !== null && isStreamingBashInput(input)
-  const word = record.isErrored ? 'error' : 'done'
+  const word = record.end ?? (record.isErrored ? 'error' : 'done')
   const place = `call ${String(back)} of ${String(kept)}`
   const output = record.output.trimEnd()
   return {
@@ -802,7 +801,7 @@ function keptView({ back, record }: KeptCall, kept: number): ViewedCall {
     output: {
       text: record.output,
       lines: output === '' ? [] : output.split(/\r?\n/),
-      savedTo: null,
+      savedTo: savedPathOf(record.output),
     },
     isErrored: record.isErrored,
     isRunning: false,

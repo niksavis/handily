@@ -367,8 +367,8 @@ line 140
   takes none. The tab draws at most 60000 characters and at most about 12000 elements, because
   the engine refuses a tree of more than 20000 nodes. Then a dim line says how many lines it did
   not draw, and `copy` still takes all of them.
-- A line wider than the tab goes on in the next row after a dim `↳`. The tab cuts the line at a
-  cell, not at a word, so the text stays as the command printed it.
+- A line wider than the tab goes on in the next row after a dim `↳`. A row breaks after the last
+  space that fits. Only a word longer than the row is cut inside the word.
 - A running call has `more` only. The `call` tab shows the full command.
 - A call with no output and an `Edit` or `Write` row have no buttons. An output of only spaces,
   tabs and blank lines counts as no output, so its row shows `0 lines` and has no buttons.
@@ -393,8 +393,10 @@ time.
 - A JSON number keeps the text that the command printed, such as `1.0` or a 20-digit integer.
 - A diff file whose last hunk was cut draws the terminal tokens on the desktop too, because a cut
   hunk does not parse.
-- `/simple open N` shows the kept record. Its `Full output saved to` line and the line that says
-  the record was cut draw dim. A JSON text that the record cut is plain.
+- `/simple open N` shows the kept record. Its head names the end of the call as the row does,
+  such as `Bash · exit 0 · 0.7s · call 5 of 5` or `Bash · No matches found · 0.2s · call 2 of 5`.
+  When the engine saved the output to a file, the tab reads the file. The line that says the
+  record was cut draws dim. A JSON text that the record cut is plain.
 - `rg` into a pipe prints no line numbers unless the command has `-n`. Such an output is plain.
 - The mocks are in `docs/mocks.md`, section 23.
 
@@ -472,7 +474,8 @@ unless a call of the group failed.
   `/handily` shows the setting beside the mode when the two differ.
 - `/simple show N` and `/simple open N` refuse a number outside the kept calls, and give the
   valid range. `/simple open` shows the kept record of the call, which is cut at 8000
-  characters, as `/simple show N` prints it.
+  characters, as `/simple show N` prints it. An output that the engine saved to a file is read
+  from the file.
 - Any other argument changes nothing, and the reply names the valid forms.
 - ctrl+o cannot expand a single row. The engine reuses the drawn row and does not call the mod
   again. Use `more` on the row, `/simple open N` or `/simple show N`.

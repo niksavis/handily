@@ -166,6 +166,11 @@ export function personRejection(output: unknown): Denial | null {
     : null
 }
 
+export function endWord(end: BashEnd): string {
+  if (end.kind === 'done') return end.interpretation ?? 'exit 0'
+  return end.kind === 'exit' ? `exit ${String(end.code)}` : end.kind
+}
+
 export function bashEnd(output: unknown, isErrored: boolean): BashEnd | null {
   if (isErrored) {
     const denial = deniedCall(output)

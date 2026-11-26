@@ -1,6 +1,6 @@
 import type { SimpleViewCall, SimpleViewDiffGap } from '../types'
 import { isRichTool } from './generic'
-import { contentLines, diffGap, hunksOf, isRecord } from './output'
+import { bashEnd, contentLines, diffGap, endWord, hunksOf, isRecord } from './output'
 
 export const KEPT_CALLS = 50
 export const PART_LIMIT = 8000
@@ -16,6 +16,12 @@ export function capped(text: string, limit = PART_LIMIT): string {
   if (text.length <= limit) return text
   const left = text.length - limit
   return `${text.slice(0, limit)}\n[simple-view kept the first ${String(limit)} characters; ${String(left)} more were cut]`
+}
+
+export function savedPathOf(text: string): string | null {
+  if (!text.startsWith(SAVED_PREFIX)) return null
+  const end = text.indexOf('\n\n')
+  return end < 0 ? null : text.slice(SAVED_PREFIX.length, end)
 }
 
 export function keptParts(lines: readonly string[]): KeptParts {
@@ -96,9 +102,21 @@ export type CallFacts = {
   elapsedMs: number
 }
 
+function bashEndWord(facts: CallFacts): string | null {
+  if (facts.tool !== 'Bash') return null
+  const { answer } = facts
+  if (answer.deny !== undefined) return 'denied'
+  const isErrored = answer.isError === true
+  const shown = isErrored && typeof answer.result !== 'string' ? answer.text : answer.result
+  const end = bashEnd(shown, isErrored)
+  return end === null ? null : endWord(end)
+}
+
 export function callRecord(facts: CallFacts): SimpleViewCall {
   const gap = isRichTool(facts.tool) ? diffGap(facts.tool, facts.answer.result) : 'unreported'
+  const end = bashEndWord(facts)
   return {
+    ...(end === null ? {} : { end }),
     generation: facts.generation,
     seq: facts.seq,
     tool_use_id: facts.tool_use_id,

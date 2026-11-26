@@ -25,6 +25,7 @@ export type SimpleViewCall = {
   diffGap: SimpleViewDiffGap | null
   isErrored: boolean
   elapsedMs: number
+  end?: string
 }
 
 declare module 'claude-code' {

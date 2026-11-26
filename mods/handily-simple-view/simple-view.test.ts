@@ -1575,6 +1575,12 @@ describe('tool row fold and copy', () => {
     expect(world.copies).toEqual(['all\nof\nit\n'])
     expect(world.toasts).toEqual([{ lines: ['✓ Copied the output', '3 lines'], timeoutMs: 6000 }])
     await ui.unmount()
+    expect(await commandText($, 'open 1')).toBe('Call 1 of the last 1 is in the call tab.')
+    expect(await viewerBody($)).toEqual(['all', 'of', 'it'])
+    const tab = await mountViewer($)
+    await tab.press({ key: 'viewer-copy' })
+    expect(world.copies.at(-1)).toBe('all\nof\nit\n')
+    await tab.unmount()
   })
 
   viewTest('the call tab says so when the saved file cannot be read', async (world, $) => {
@@ -2195,8 +2201,8 @@ describe('the call tab by output kind', () => {
         ).toBe(true)
         if (columns === INLINE_BODY) {
           expect(tab.rows.slice(2, 4)).toEqual([
-            '[planMode:31]  # [bold+warning:pool_size] is per worker, see d',
-            '[dim:↳ ]ocs/pools.md',
+            '[planMode:31]  # [bold+warning:pool_size] is per worker, see ',
+            '[dim:↳ ]docs/pools.md',
           ])
         }
       },
@@ -2447,6 +2453,10 @@ describe('the call tab by output kind', () => {
           `[dim:↳ ]${'x'.repeat(10)}`,
         ])
         expect(tab.lines).toEqual(['x'.repeat(80)])
+        const words = 'the call tab shows the output of the command'
+        const worded = await kindTab(world, $, 'cat words.txt', words, INLINE_BODY, surface)
+        expect(worded.rows).toEqual(['the call tab shows the output of ', '[dim:↳ ]the command'])
+        expect(worded.lines).toEqual([words])
       },
     )
   }
@@ -2467,21 +2477,29 @@ describe('the call tab by output kind', () => {
   )
 
   viewTest(
-    'a kept record with a saved file draws the saved line dim and its JSON in its format',
+    'a kept record with a saved file reads the file and draws its JSON in its format',
     async (world, $) => {
       const path = `${ROOT}/.tool-results/out.json`
-      world.answer = () => answered('{"a":1}\n', { persistedOutputPath: path })
+      world.files[path] = '{"a":1,"b":[]}\n'
+      const preview = '<persisted-output>\nOutput too large (1.0KB).\nPreview (first 2KB):\n{"a":1'
+      world.answer = () => ({
+        result: bashOutput('{"a":1,"b":[]}\n', { persistedOutputPath: path }),
+        text: preview,
+      })
       await runBash(world, $, { command: 'gh api small', description: 'Read a small object' })
       expect(await commandText($, 'open 1')).toBe('Call 1 of the last 1 is in the call tab.')
       const tab = await viewerAt($, DOCKED_BODY)
       expect(tab.top).toBe(rule('json', DOCKED_BODY))
       expect(tab.lines).toEqual([
-        `[dim:Full output saved to ${path}]`,
-        '[dim: ]',
         '{',
-        '  [planMode:"a"]: [warning:1]',
+        '  [planMode:"a"]: [warning:1],',
+        '  [planMode:"b"]: []',
         '}',
       ])
+      world.files = {}
+      expect(await commandText($, 'open 1')).toBe('Call 1 of the last 1 is in the call tab.')
+      const unread = await viewerAt($, DOCKED_BODY)
+      expect(unread.lines).toEqual(['The saved output could not be read.', `[dim:${path}]`])
     },
   )
 })
@@ -2506,12 +2524,12 @@ describe('/simple open', () => {
       expect(await openText($, '')).toBe('Call 1 of the last 2 is in the call tab.')
       expect(world.opens).toEqual([{ ...CALL_TAB, focus: true }])
       expect(await viewerBody($)).toEqual(['second'])
-      expect((await viewerText($))[0]).toMatch(/^Bash · done · \d+\.\ds · call 1 of 2$/)
+      expect((await viewerText($))[0]).toMatch(/^Bash · exit 0 · \d+\.\ds · call 1 of 2$/)
     },
   )
 
   viewTest('opens call N, where 1 is the last call', async (world, $) => {
-    world.answer = () => answered('first\n')
+    world.answer = () => answered('first\n', { returnCodeInterpretation: 'No matches found' })
     await runBash(world, $, { command: 'echo first', description: 'Say first' })
     world.answer = () => answered('second\n')
     await runBash(world, $, { command: 'echo second', description: 'Say second' })
@@ -2519,6 +2537,7 @@ describe('/simple open', () => {
     expect(await viewerBody($)).toEqual(['first'])
     expect(await viewerBody($, 'desktop')).toEqual(['first'])
     expect((await viewerText($)).slice(1, 3)).toEqual(['Say first', '$ echo first'])
+    expect((await viewerText($))[0]).toMatch(/^Bash · No matches found · \d+\.\ds · call 2 of 2$/)
   })
 
   viewTest(
@@ -2534,6 +2553,7 @@ describe('/simple open', () => {
       await runBash(world, $, { command: 'true', description: 'Pass again' })
       expect(await openText($, 'error')).toBe('Call 2 of the last 4 is in the call tab.')
       expect(await viewerBody($)).toEqual(['Error: Exit code 2', 'newer failure'])
+      expect((await viewerText($))[0]).toMatch(/^Bash · exit 2 · \d+\.\ds · call 2 of 4$/)
       const viewer = await mountViewer($)
       expect(await viewer.find({ key: 'viewer-next' })).toBeUndefined()
       await viewer.press({ key: 'viewer-previous' })

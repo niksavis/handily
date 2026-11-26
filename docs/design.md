@@ -899,9 +899,10 @@ guesses: grep, git log and markdown need the command, and every line must have t
 diff draws with the tokens of the mod on the terminal, and with one engine `Code` element for
 each whole file on the desktop, because a cut hunk does not parse. Markdown draws with the engine
 `Markdown` element. JSON keeps the number text as printed, and a level 5 deep or more is one dim
-mark. A long line wraps at a cell after a dim `↳`. The tab works on the first 60000 characters
-of the output only, keeps the drawn body per call, and stops at about 12000 elements, because
-the engine refuses a tree of more than 20000 nodes. The mocks are in `docs/mocks.md`, section 23.
+mark. A long line wraps after the last space that fits, with a dim `↳` on the next row. The
+tab works on the first 60000 characters of the output only, keeps the drawn body per call, and
+stops at about 12000 elements, because the engine refuses a tree of more than 20000 nodes. The
+mocks are in `docs/mocks.md`, section 23.
 
 Hand-off to other mods. The order of two plugins in the `user` tier is not in the types. In a
 live check on 2.1.300 the chain was `handily-board`, `handily-reply-view`,
