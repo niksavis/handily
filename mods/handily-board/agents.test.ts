@@ -1631,7 +1631,7 @@ describe(DRAW_WORK_CRITERION, () => {
   }
 
   test(
-    'a session from a version that kept no agentPlans draws every plan on the first draw and reads the state 9 times on terminal and 7 on desktop from the second',
+    'a session from a version that kept no agentPlans draws every plan on the first draw with no plan write, reads the state 9 times on terminal and 7 on desktop from the second, and keeps the plans at the next prompt',
     withRoomToFillAgents,
     async ($, on) => {
       const agents = 30
@@ -1643,11 +1643,14 @@ describe(DRAW_WORK_CRITERION, () => {
         if (isCounting) reads.push(`${e.plugin}:${e.key}`)
         return next(e)
       })
-      on('state.set', (_$, e, next) =>
-        isOlderVersion && e.plugin === PLUGIN && e.key === 'agentPlans'
-          ? { value: { isSet: true, version: 0 } }
-          : next(e),
-      )
+      const planWrites: unknown[] = []
+      on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
+      on('state.set', (_$, e, next) => {
+        if (e.plugin !== PLUGIN || e.key !== 'agentPlans') return next(e)
+        if (isOlderVersion) return { value: { isSet: true, version: 0 } }
+        planWrites.push(e.value)
+        return next(e)
+      })
       await start($)
       await $.tool.call({ tool: TOOL_ADD, title: 'Lead the lanes' })
       await fillAgents($, seen, agents)
@@ -1673,6 +1676,12 @@ describe(DRAW_WORK_CRITERION, () => {
         expect(reads, reads.join(', ')).toHaveLength(STATE_READS_PER_DRAW[surface])
         await ui.unmount()
       }
+      expect(planWrites).toEqual([])
+      await $.prompt.submit({ text: 'go on', wait: false, origin: { kind: 'composer' } })
+      expect(Object.keys(planWrites.at(-1) ?? {})).toHaveLength(agents)
+      expect(
+        seen.logs.filter((text) => text.includes('denied') || text.includes('not kept')),
+      ).toEqual([])
     },
   )
 

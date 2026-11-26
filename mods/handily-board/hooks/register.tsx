@@ -50,6 +50,7 @@ import {
   type AgentPulses,
   type AgentRow,
   type AgentStep,
+  type FoundPlan,
   type SeenEnd,
   NEEDS_YOU_AFTER_MS,
   agentView,
@@ -773,7 +774,9 @@ async function claimAgentList(
   return refusal
 }
 
-function agentHostOf($: EngineInterface): AgentHost {
+type PlanKeep = { found: Map<string, FoundPlan> }
+
+function agentHostOf($: EngineInterface, plans?: PlanKeep): AgentHost {
   return {
     now: () => $.clock.now(),
     listed: () => $.agent.list(),
@@ -781,7 +784,10 @@ function agentHostOf($: EngineInterface): AgentHost {
     change: async (step) => {
       await update($, AGENTS, (current = []) => labelledAgents(step(current)))
     },
-    plans: async () => (await $.state.get(AGENT_PLANS)).value ?? {},
+    plans: async () => {
+      const stored = (await $.state.get(AGENT_PLANS)).value ?? {}
+      return plans === undefined ? stored : withFoundPlans(stored, [...plans.found.values()])
+    },
     plan: async (agentId) => {
       const { value, version } = await $.state.get({
         plugin: 'handily-board',
@@ -791,15 +797,8 @@ function agentHostOf($: EngineInterface): AgentHost {
       return { agentId, tasks: value?.tasks ?? [], version }
     },
     keepPlans: (found) => {
-      $.clock.after(0, () => {
-        update($, AGENT_PLANS, (current = {}) => withFoundPlans(current, found)).catch(
-          (error: unknown) => {
-            $.ui.log(`handily-board: the agent plans were not kept: ${String(error)}`, {
-              to: 'debug',
-            })
-          },
-        )
-      })
+      if (plans === undefined) return
+      for (const one of found) plans.found.set(one.agentId, one)
     },
   }
 }
@@ -1048,8 +1047,22 @@ async function keepShownFailures($: EngineInterface, failures: FailureKeep): Pro
   }
 }
 
+async function keepFoundPlans($: EngineInterface, plans: PlanKeep): Promise<void> {
+  if (plans.found.size === 0) return
+  const found = [...plans.found.values()]
+  try {
+    await update($, AGENT_PLANS, (current = {}) => withFoundPlans(current, found))
+    for (const one of found) {
+      if (plans.found.get(one.agentId) === one) plans.found.delete(one.agentId)
+    }
+  } catch (error) {
+    $.ui.log(`handily-board: the agent plans were not kept: ${String(error)}`, { to: 'debug' })
+  }
+}
+
 type SessionKeeps = {
   failures: FailureKeep
+  plans: PlanKeep
   vitals: VitalsKeep
   checks: ChecksKeep
   request: RequestKeep
@@ -1074,10 +1087,11 @@ async function isTreeListed($: EngineInterface): Promise<boolean> {
 
 async function agentsNow(
   $: EngineInterface,
-  keeps: Pick<SessionKeeps, 'steps' | 'pulses' | 'failures'>,
+  keeps: Pick<SessionKeeps, 'steps' | 'pulses' | 'failures' | 'plans'>,
   now: number,
 ): Promise<AgentRow[]> {
-  const rows = withSteps(await agentView(agentHostOf($), now), keeps.steps.last, keeps.steps.counts)
+  const host = agentHostOf($, keeps.plans)
+  const rows = withSteps(await agentView(host, now), keeps.steps.last, keeps.steps.counts)
   return withShownFailures(withStalls(rows, keeps.pulses, now), keeps.failures)
 }
 
@@ -2058,6 +2072,7 @@ export const register: Register = (on, options) => {
   const trend: TrendKeep = { current: undefined }
   const steps: StepsKeep = { last: new Map(), counts: new Map() }
   const failures: FailureKeep = { shown: new Set() }
+  const foundPlans: PlanKeep = { found: new Map() }
   const resume = { isNoteDue: false }
   const log: LogKeep = { current: EMPTY_LOG, denied: new Set(), runs: new Map() }
   const refused = new Set<string>()
@@ -2180,6 +2195,7 @@ export const register: Register = (on, options) => {
     const completed = await next(e)
     if (e.agentId === undefined) {
       await keepShownFailures($, failures)
+      await keepFoundPlans($, foundPlans)
       await noteChatAnswers($, words)
       const asked = stillAsked(await readList(hostOf($)), asks.splice(0))
       const parts = asksParts(asked)
@@ -2302,7 +2318,10 @@ export const register: Register = (on, options) => {
       if (entered.drop !== undefined) words.kept = kept
       if (entered.drop === undefined) await notePrompt($, log, e)
       if (entered.drop === undefined && isPersonPrompt(e)) await clearBandEnds($, 'isAnswerSeen')
-      if (entered.drop === undefined) await keepShownFailures($, failures)
+      if (entered.drop === undefined) {
+        await keepShownFailures($, failures)
+        await keepFoundPlans($, foundPlans)
+      }
       if (entered.drop === undefined && isPersonPrompt(e)) await clearSentFixes($, e.text)
       if (entered.drop === undefined && isPersonPrompt(e)) $.ui.invalidate('ui.render')
       return entered
@@ -2504,6 +2523,7 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'board' }, async ($, e) => {
     await keepShownFailures($, failures)
+    await keepFoundPlans($, foundPlans)
     const host = hostOf($)
     const command = parseBoardCommand(e.args)
     switch (command.kind) {
@@ -2529,6 +2549,7 @@ export const register: Register = (on, options) => {
           text: statsText(
             await workOf($, {
               failures,
+              plans: foundPlans,
               vitals,
               checks,
               request,
@@ -2545,6 +2566,7 @@ export const register: Register = (on, options) => {
       case 'log': {
         const work = await workOf($, {
           failures,
+          plans: foundPlans,
           vitals,
           checks,
           request,
@@ -2607,7 +2629,9 @@ export const register: Register = (on, options) => {
     const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
     const plan = await offeredPlan(plans)
     const now = await $.clock.now()
-    const agents = stripRows(await agentsNow($, { steps, pulses, failures }, now))
+    const agents = stripRows(
+      await agentsNow($, { steps, pulses, failures, plans: foundPlans }, now),
+    )
     const waitingNow = background.current
     const isWaitingNow = isWaiting(waitingNow)
     const view = bandView(await readList(host), plan, activity, now, agents.length, isWaitingNow)
@@ -2669,6 +2693,7 @@ export const register: Register = (on, options) => {
   on('ui.close', async ($, e, next) => {
     const closed = await next(e)
     await keepShownFailures($, failures)
+    await keepFoundPlans($, foundPlans)
     if (isBoardPaneId(e.id)) await notePaneChange($)
     if (isBoardPaneId(e.id) && (await openBoardPanes($)).length === 0) stopRedraw(redraw)
     if (isBoardPaneId(e.id)) await refreshStatus($, attention)
@@ -2735,6 +2760,7 @@ export const register: Register = (on, options) => {
     }
     const keeps = {
       failures,
+      plans: foundPlans,
       vitals,
       checks,
       request,
