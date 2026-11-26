@@ -40,6 +40,7 @@ import {
   erroredText,
   fileEdit,
   hasErrorShape,
+  isAnsweredText,
   isInterruption,
   isRecord,
   lineCount,
@@ -494,7 +495,10 @@ function pendingBashRow(look: RowLook, tool: string, input: unknown): RenderElem
 }
 
 function keptErrorText(memory: CallMemory, props: { tool_use_id: string; output?: unknown }) {
-  return erroredText(props.output, memory.errors.get(props.tool_use_id))
+  const kept = memory.errors.get(props.tool_use_id)
+  const isOtherText =
+    typeof props.output === 'string' && kept !== undefined && !isAnsweredText(props.output, kept)
+  return isOtherText ? null : erroredText(props.output, kept)
 }
 
 function stoppedText(

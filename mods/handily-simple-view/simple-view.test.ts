@@ -18,8 +18,30 @@ import {
   type PluginTier,
 } from 'claude-code/testing'
 import type { QuietItemsSimpleViewMode } from './.claude-plugin/types/handily-quiet-items'
+import {
+  BASH_DENIED_ON_2_1_296,
+  BASH_DENIED_ON_2_1_311,
+  BASH_RULE_ADVICE_ON_2_1_296,
+  CLASSIFIER_ADVICE_ON_2_1_296,
+  CLASSIFIER_DENIAL_START_ON_2_1_296,
+  EDIT_DENIED_ON_2_1_296,
+  ERRORED_OUTPUT_ON_2_1_332,
+  EXIT_CODE_ON_2_1_332,
+  EXITED_ON_2_1_332,
+  FILE_MISSING_ON_2_1_332,
+  FILE_MODIFIED_ON_2_1_332,
+  FILE_NOT_READ_ON_2_1_332,
+  HOOK_ERROR_ON_2_1_312,
+  INTERRUPTED_ON_2_1_332,
+  PERSON_DENIED_ON_2_1_312,
+  PERSON_REJECTED_OUTPUT_ON_2_1_323,
+  REQUEST_INTERRUPTED_ON_2_1_332,
+  RULE_DENIED_BASH_ON_2_1_322,
+  SERVER_SIDE_REASON_ON_2_1_311,
+  TOOL_USE_ERROR_ON_2_1_328,
+  UNKNOWN_SKILL_ON_2_1_332,
+} from './fixtures/engine-texts'
 import { commandLabel, programOf, segments } from './hooks/command'
-import { PERSON_REJECTED_OUTPUT } from './hooks/output'
 import {
   newViewerSite,
   pressMore,
@@ -564,7 +586,9 @@ const STREAMING_BASH = {
 const MISSING = groupCall(
   'toolu_g2',
   'ls /nonexistent-dir',
-  failed("Error: Exit code 2\nls: cannot access '/nonexistent-dir': No such file or directory"),
+  failed(
+    `${EXITED_ON_2_1_332(2)}\nls: cannot access '/nonexistent-dir': No such file or directory`,
+  ),
 )
 
 function group(
@@ -631,8 +655,13 @@ const HOOK_MESSAGE_LINES = [
 ] as const
 const HOOK_MESSAGE = `${HOOK_MESSAGE_LINES.join('\n')}\n`
 const HOOK_REFUSAL =
-  'Error: PreToolUse:Bash hook error: [uv run --no-project --no-python-downloads python "${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/lefthook-runtime.py" claude pretooluse]: ' +
-  HOOK_MESSAGE
+  ERRORED_OUTPUT_ON_2_1_332(
+    HOOK_ERROR_ON_2_1_312(
+      'PreToolUse',
+      'Bash',
+      'uv run --no-project --no-python-downloads python "${CLAUDE_PROJECT_DIR}/.basicly/core/hooks/lefthook-runtime.py" claude pretooluse',
+    ),
+  ) + HOOK_MESSAGE
 const REFUSED_INPUT = { command: 'true | tail -1 && echo x', description: 'Print x after a pipe' }
 
 describe('Bash row', () => {
@@ -736,7 +765,8 @@ describe('Bash row', () => {
   for (const surface of SURFACES) {
     viewTest(`shows exit N and the first error line on ${surface}`, async (world, $) => {
       world.delayMs = 15_000
-      world.answer = () => failed('Error: Exit code 2\n\n  src/app.ts(3,1): error TS2304\nmore\n')
+      world.answer = () =>
+        failed(`${EXITED_ON_2_1_332(2)}\n\n  src/app.ts(3,1): error TS2304\nmore\n`)
       const input = { command: 'npx tsc -p .', description: 'Type check the project' }
       const id = await runBash(world, $, input)
       const answer = world.answer(input)
@@ -810,7 +840,7 @@ describe('Bash row', () => {
   viewTest(
     'shows exit N and a dim no output line when the call printed nothing',
     async (world, $) => {
-      world.answer = () => failed('Error: Exit code 1')
+      world.answer = () => failed(EXITED_ON_2_1_332(1))
       const input = { command: 'false', description: 'Fail' }
       const id = await runBash(world, $, input)
       expect(
@@ -863,6 +893,22 @@ describe('Bash row', () => {
             "Error: The user doesn't want to proceed with this command.\nSTOP what you are doing.",
             "The user doesn't want to proceed with this command.",
           ],
+          [
+            ERRORED_OUTPUT_ON_2_1_332(`${EXIT_CODE_ON_2_1_332(2).replace('code', 'status')}\nnope`),
+            'Exit status 2',
+          ],
+          [
+            ERRORED_OUTPUT_ON_2_1_332(
+              `${HOOK_ERROR_ON_2_1_312('PreToolUse', 'Bash', '/work/refuse.sh').replace('hook error', 'hook blocked')}${PROBE_GUARD_MESSAGE}`,
+            ),
+            `PreToolUse:Bash hook blocked: [/work/refuse.sh]: ${PROBE_GUARD_MESSAGE}`,
+          ],
+          [
+            ERRORED_OUTPUT_ON_2_1_332(
+              BASH_DENIED_ON_2_1_296.replace('auto mode classifier', 'auto-mode classifier'),
+            ),
+            BASH_DENIED_ON_2_1_296.replace('auto mode classifier', 'auto-mode classifier'),
+          ],
         ] as const
         const input = { command: 'rm notes.md', description: 'Remove the notes' }
         for (const [text, first] of cases) {
@@ -908,7 +954,7 @@ describe('Bash row', () => {
           const description = 'List a missing folder'
           const reason = "ls: cannot access '/nonexistent-folder': No such file or directory"
           world.delayMs = 2000
-          world.answer = () => failed(`Error: Exit code 2\n${reason}`)
+          world.answer = () => failed(`${EXITED_ON_2_1_332(2)}\n${reason}`)
           const input = { command: 'ls /nonexistent-folder', description }
           const id = await runBash(world, $, input)
           const ui = await $.ui.mount({
@@ -986,7 +1032,7 @@ describe('Bash row', () => {
     [143, 'stopped'],
   ] as const) {
     viewTest(`exit ${String(code)} names itself dim beside the code`, async (world, $) => {
-      world.answer = () => failed(`Error: Exit code ${String(code)}\nsh: 1: tsc: not found`)
+      world.answer = () => failed(`${EXITED_ON_2_1_332(code)}\nsh: 1: tsc: not found`)
       const input = { command: 'tsc', description: 'Run the build' }
       const id = await runBash(world, $, input)
       const props = useProps(id, 'Bash', input, world.answer(input))
@@ -1001,7 +1047,7 @@ describe('Bash row', () => {
   }
 
   viewTest('exit 2 has no name beside the code', async (world, $) => {
-    world.answer = () => failed('Error: Exit code 2\nnope')
+    world.answer = () => failed(`${EXITED_ON_2_1_332(2)}\nnope`)
     const input = { command: 'ls x', description: 'List x' }
     const id = await runBash(world, $, input)
     const props = useProps(id, 'Bash', input, world.answer(input))
@@ -1537,7 +1583,7 @@ describe('tool row fold and copy', () => {
   viewTest(
     'an exit N row shows the error output in the call tab and copies it',
     async (world, $) => {
-      const error = 'Error: Exit code 2\n\n  src/app.ts(3,1): error TS2304\nmore\n'
+      const error = `${EXITED_ON_2_1_332(2)}\n\n  src/app.ts(3,1): error TS2304\nmore\n`
       const input = { command: 'npx tsc -p .', description: 'Type check the project' }
       const props = await bashProps(world, $, input, failed(error))
       expect(await shownInTab($, props)).toEqual(['  src/app.ts(3,1): error TS2304', 'more'])
@@ -1827,7 +1873,7 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
     viewTest(
       `an inner Bash call that failed draws exit N and the reason that its tool.call answered on ${surface}`,
       async (world, $) => {
-        world.answer = () => failed('Exit code 3\nnpm ERR! missing script: probe')
+        world.answer = () => failed(`${EXIT_CODE_ON_2_1_332(3)}\nnpm ERR! missing script: probe`)
         const input = { command: 'npm run probe', description: 'Run the probe' }
         const id = await runBash(world, $, input)
         expect(
@@ -1846,18 +1892,12 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
     viewTest(
       `an inner Read that failed draws one error row and the reason without the tool_use_error tags on ${surface}`,
       async (world, $) => {
-        world.answer = () =>
-          failed(
-            '<tool_use_error>File does not exist. Note: your current working directory is /work/app.</tool_use_error>',
-          )
+        world.answer = () => failed(TOOL_USE_ERROR_ON_2_1_328(FILE_MISSING_ON_2_1_332(ROOT)))
         const input = { file_path: `${ROOT}/gone.md` }
         const id = await runTool(world, $, { tool: 'Read', ...input })
         expect(
           await texts($, surface, { component: 'ToolUse', props: inner(id, 'Read', input) }),
-        ).toEqual([
-          `${MARKER[surface]}Read gone.md error`,
-          'File does not exist. Note: your current working directory is /work/app.',
-        ])
+        ).toEqual([`${MARKER[surface]}Read gone.md error`, FILE_MISSING_ON_2_1_332(ROOT)])
         const result = await drawn(
           $,
           { component: 'ToolResult', props: innerResult(id, 'Read') },
@@ -1870,13 +1910,13 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
     viewTest(
       `an inner call with an empty error text draws exit N once over a no output line on ${surface}`,
       async (world, $) => {
-        world.answer = () => failed('Error: Exit code 1')
+        world.answer = () => failed(EXITED_ON_2_1_332(1))
         const input = { command: 'false', description: 'Fail' }
         const id = await runBash(world, $, input)
         expect(
           await texts($, surface, { component: 'ToolUse', props: inner(id, 'Bash', input) }),
         ).toEqual([`${MARKER[surface]}Fail false exit 1`, 'no output'])
-        world.answer = () => failed('Error: Exit code 3')
+        world.answer = () => failed(EXITED_ON_2_1_332(3))
         const bare = { command: 'exit 3' }
         const bareId = await runBash(world, $, bare)
         expect(
@@ -1918,7 +1958,7 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
   )
 
   viewTest('a session end forgets the kept error texts', async (world, $) => {
-    world.answer = () => failed('Exit code 2\nboom')
+    world.answer = () => failed(`${EXIT_CODE_ON_2_1_332(2)}\nboom`)
     const input = { command: 'false', description: 'Fail' }
     const id = await runBash(world, $, input)
     await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } })
@@ -1928,12 +1968,12 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
   })
 
   viewTest('keeps the error texts of the last 50 failed calls only', async (world, $) => {
-    world.answer = () => failed('Exit code 2\nfirst')
+    world.answer = () => failed(`${EXIT_CODE_ON_2_1_332(2)}\nfirst`)
     const input = { command: 'false', description: 'Fail' }
     const first = await runBash(world, $, input)
-    world.answer = () => failed('Exit code 2\nlater')
+    world.answer = () => failed(`${EXIT_CODE_ON_2_1_332(2)}\nlater`)
     for (let index = 0; index < 49; index += 1) await runBash(world, $, { command: 'false' })
-    world.answer = () => failed('Exit code 2\nlast')
+    world.answer = () => failed(`${EXIT_CODE_ON_2_1_332(2)}\nlast`)
     const last = await runBash(world, $, input)
     expectEngineRow(
       (await drawn($, { component: 'ToolUse', props: inner(first, 'Bash', input) })).tree,
@@ -1947,10 +1987,10 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
     viewTest(
       `at 40 columns a file error reason wraps to two lines, and a longer one is cut with more on ${surface}`,
       async (_world, $) => {
-        const short = 'File has not been read yet. Read it first before writing to it.'
+        const short = FILE_NOT_READ_ON_2_1_332
         const long = `${short} The file changed on disk since the last read, so read it again.`
         const rowAt = async (text: string) => {
-          const answer: Answer = { isError: true, result: `Error: ${text}`, text }
+          const answer: Answer = { isError: true, result: ERRORED_OUTPUT_ON_2_1_332(text), text }
           const props = useProps('toolu_w40', 'Edit', { file_path: `${ROOT}/a.ts` }, answer)
           const ui = await mountAt($, props, { columns: 40, rows: 40, isFullscreen: true }, surface)
           const lines = sketch(await ui.drawn())
@@ -1982,7 +2022,7 @@ describe('errored calls inside a REPL script and classic errored calls', () => {
     'at 120 columns a long reason stays on one line and the row gets more and copy',
     async (_world, $) => {
       const text = `${'The edit failed because the file changed. '.repeat(4).trim()}\nSecond line of the error.`
-      const answer: Answer = { isError: true, result: `Error: ${text}`, text }
+      const answer: Answer = { isError: true, result: ERRORED_OUTPUT_ON_2_1_332(text), text }
       const props = useProps('toolu_w120', 'Edit', { file_path: `${ROOT}/a.ts` }, answer)
       const ui = await mountAt($, props, { columns: 120, rows: 40, isFullscreen: true })
       const lines = sketch(await ui.drawn())
@@ -2550,27 +2590,27 @@ describe('/simple open', () => {
   viewTest(
     'open error opens the last call that failed, and the tab steps between failed calls',
     async (world, $) => {
-      world.answer = () => failed('Error: Exit code 1\nolder failure')
+      world.answer = () => failed(`${EXITED_ON_2_1_332(1)}\nolder failure`)
       await runBash(world, $, { command: 'false', description: 'Fail first' })
       world.answer = () => answered('ok\n')
       await runBash(world, $, { command: 'true', description: 'Pass' })
-      world.answer = () => failed('Error: Exit code 2\nnewer failure')
+      world.answer = () => failed(`${EXITED_ON_2_1_332(2)}\nnewer failure`)
       await runBash(world, $, { command: 'false', description: 'Fail again' })
       world.answer = () => answered('ok\n')
       await runBash(world, $, { command: 'true', description: 'Pass again' })
       expect(await openText($, 'error')).toBe('Call 2 of the last 4 is in the call tab.')
-      expect(await viewerBody($)).toEqual(['Error: Exit code 2', 'newer failure'])
+      expect(await viewerBody($)).toEqual([EXITED_ON_2_1_332(2), 'newer failure'])
       expect((await viewerText($))[0]).toMatch(/^Bash · exit 2 · \d+\.\ds · call 2 of 4$/)
       const viewer = await mountViewer($)
       expect(await viewer.find({ key: 'viewer-next' })).toBeUndefined()
       await viewer.press({ key: 'viewer-previous' })
       await viewer.unmount()
-      expect(await viewerBody($)).toEqual(['Error: Exit code 1', 'older failure'])
+      expect(await viewerBody($)).toEqual([EXITED_ON_2_1_332(1), 'older failure'])
       const older = await mountViewer($)
       expect(await older.find({ key: 'viewer-previous' })).toBeUndefined()
       await older.press({ key: 'viewer-next' })
       await older.unmount()
-      expect(await viewerBody($)).toEqual(['Error: Exit code 2', 'newer failure'])
+      expect(await viewerBody($)).toEqual([EXITED_ON_2_1_332(2), 'newer failure'])
     },
   )
 
@@ -2940,9 +2980,7 @@ describe('Read, Grep and Glob rows', () => {
   viewTest(
     'draws an errored Read or Grep as one error row and the reason under it',
     async (_w, $) => {
-      const missing = failed(
-        'Error: File does not exist. Note: your current working directory is /work/app.',
-      )
+      const missing = failed(ERRORED_OUTPUT_ON_2_1_332(FILE_MISSING_ON_2_1_332(ROOT)))
       const errored: [string, unknown, Answer, string][] = [
         ['Read', { file_path: `${ROOT}/nope.ts` }, missing, '● Read nope.ts error'],
         [
@@ -2952,10 +2990,7 @@ describe('Read, Grep and Glob rows', () => {
           '● Grep "x" in nope error',
         ],
       ]
-      const reasons = [
-        'File does not exist. Note: your current working directory is /work/app.',
-        'Path does not exist',
-      ]
+      const reasons = [FILE_MISSING_ON_2_1_332(ROOT), 'Path does not exist']
       for (const [index, [tool, input, answer, row]] of errored.entries()) {
         const use = useProps('toolu_x0', tool, input, answer)
         expect(await texts($, 'terminal', { component: 'ToolUse', props: use })).toEqual([
@@ -2975,9 +3010,7 @@ describe('Read, Grep and Glob rows', () => {
   viewTest(
     'passes an unread Read, Grep or Glob on, and an error text of no known shape',
     async (_w, $) => {
-      const unshaped = failed(
-        'File does not exist. Note: your current working directory is /work/app.',
-      )
+      const unshaped = failed(FILE_MISSING_ON_2_1_332(ROOT))
       const cases: [string, unknown, Answer, Partial<RenderPropsOf['ToolUse']>][] = [
         ['Read', { file_path: `${ROOT}/nope.ts` }, unshaped, {}],
         [
@@ -3010,25 +3043,13 @@ describe('Read, Grep and Glob rows', () => {
 
 const PROBE_GUARD_MESSAGE = 'probe-guard: file tools are refused in this folder'
 
-const DENIAL_START =
-  'Permission for this action was denied by the Claude Code auto mode classifier. Reason: '
-const DENIAL_ADVICE =
-  " If you have other tasks that don't depend on this action, continue working on those. IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. If you believe this capability is essential to complete the user's request, first try a safer method. Get as much of the rest of the task done as you can, then STOP and explain to the user what you were trying to do and why you need this permission. Let the user decide how to proceed."
-const BASH_RULE_ADVICE =
-  ' To allow this type of action in the future, the user can add a permission rule for Bash to their settings.'
-const SERVER_SIDE_REASON =
-  'The server-side auto mode classifier judged this action dangerous (it gave no explanation).'
-const EDIT_DENIED_ON_2_1_296 = `${DENIAL_START}[Self-Modification].${DENIAL_ADVICE}`
-const BASH_DENIED_ON_2_1_296 = `${DENIAL_START}[Self-Modification].${DENIAL_ADVICE}${BASH_RULE_ADVICE}`
-const BASH_DENIED_ON_2_1_311 = `${DENIAL_START}${SERVER_SIDE_REASON}${DENIAL_ADVICE}${BASH_RULE_ADVICE}`
-
 function classifierDenied(text: string): Answer {
-  return { isError: true, result: `Error: ${text}`, text }
+  return { isError: true, result: ERRORED_OUTPUT_ON_2_1_332(text), text }
 }
 
 function hookRefused(tool: string): Answer {
-  const text = `PreToolUse:${tool} hook error: [/work/refuse.sh]: ${PROBE_GUARD_MESSAGE}\n`
-  return { isError: true, result: `Error: ${text}`, text }
+  const text = `${HOOK_ERROR_ON_2_1_312('PreToolUse', tool, '/work/refuse.sh')}${PROBE_GUARD_MESSAGE}\n`
+  return { isError: true, result: ERRORED_OUTPUT_ON_2_1_332(text), text }
 }
 
 const FILE_REFUSALS_CAPTURED_ON_2_1_312 = [
@@ -3089,7 +3110,7 @@ describe('row labels with a control character', () => {
   })
 
   viewTest('drops colour codes from the first error line of a failed command', async (world, $) => {
-    world.answer = () => failed('Error: Exit code 1\n\u001b[31mbuild failed\u001b[0m\n')
+    world.answer = () => failed(`${EXITED_ON_2_1_332(1)}\n\u001b[31mbuild failed\u001b[0m\n`)
     const input = { command: 'make', description: 'Build' }
     const id = await runBash(world, $, input)
     expect(
@@ -3242,16 +3263,22 @@ describe('file rows that a hook refused', () => {
       `draws an Edit, Write or Read error that no hook refused as one row and the first line of the error under it on ${surface}`,
       async (_world, $) => {
         const errors: [string, string][] = [
-          ['Edit', 'File has not been read yet. Read it first before writing to it.'],
+          ['Edit', FILE_NOT_READ_ON_2_1_332],
+          ['Write', FILE_MODIFIED_ON_2_1_332],
+          [
+            'Edit',
+            `${CLASSIFIER_DENIAL_START_ON_2_1_296}The edit changes the guard of the agent.${CLASSIFIER_ADVICE_ON_2_1_296}`,
+          ],
+          ['Read', FILE_MISSING_ON_2_1_332(ROOT)],
+          ['Edit', EDIT_DENIED_ON_2_1_296.replace('auto mode classifier', 'auto-mode classifier')],
           [
             'Write',
-            'File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.',
+            `${HOOK_ERROR_ON_2_1_312('PreToolUse', 'Write', '/work/refuse.sh').replace('hook error', 'hook blocked')}${PROBE_GUARD_MESSAGE}`,
           ],
-          ['Edit', `${DENIAL_START}The edit changes the guard of the agent.${DENIAL_ADVICE}`],
-          ['Read', 'File does not exist. Note: your current working directory is /work/app.'],
+          ['Read', RULE_DENIED_BASH_ON_2_1_322.replace('Bash', 'Read').replace('has been', 'was')],
         ]
         for (const [tool, text] of errors) {
-          const answer: Answer = { isError: true, result: `Error: ${text}`, text }
+          const answer: Answer = { isError: true, result: ERRORED_OUTPUT_ON_2_1_332(text), text }
           const use = useProps('toolu_h3', tool, { file_path: `${ROOT}/note.txt` }, answer)
           const result = resultProps('toolu_h3', tool, answer)
           expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
@@ -3351,7 +3378,10 @@ describe('calls that the auto mode classifier denied', () => {
   viewTest(
     'draws a denied Edit as the approved row at 80 columns for the full and the short text',
     async (_world, $) => {
-      for (const text of [EDIT_DENIED_ON_2_1_296, `${DENIAL_START}[Self-Modification].`]) {
+      for (const text of [
+        EDIT_DENIED_ON_2_1_296,
+        `${CLASSIFIER_DENIAL_START_ON_2_1_296}[Self-Modification].`,
+      ]) {
         const ui = await $.ui.mount({
           plugin: 'handily-simple-view',
           surface: 'terminal',
@@ -3371,7 +3401,7 @@ describe('calls that the auto mode classifier denied', () => {
     viewTest(
       `draws a Bash call that the classifier denied with a reason as one row with no more button on ${surface}`,
       async (world, $) => {
-        world.answer = () => failed(`Error: ${BASH_DENIED_ON_2_1_296}`)
+        world.answer = () => failed(ERRORED_OUTPUT_ON_2_1_332(BASH_DENIED_ON_2_1_296))
         const id = await runBash(world, $, BASH_INPUT)
         const answer = world.answer(BASH_INPUT)
         const use = useProps(id, 'Bash', BASH_INPUT, answer)
@@ -3399,7 +3429,7 @@ describe('calls that the auto mode classifier denied', () => {
     viewTest(
       `draws the server-side sentence as denied and auto mode with no reason on ${surface}`,
       async (world, $) => {
-        world.answer = () => failed(`Error: ${BASH_DENIED_ON_2_1_311}`)
+        world.answer = () => failed(ERRORED_OUTPUT_ON_2_1_332(BASH_DENIED_ON_2_1_311))
         const id = await runBash(world, $, BASH_INPUT)
         const bash = useProps(id, 'Bash', BASH_INPUT, world.answer(BASH_INPUT))
         expect(await texts($, surface, { component: 'ToolUse', props: bash })).toEqual([
@@ -3409,7 +3439,9 @@ describe('calls that the auto mode classifier denied', () => {
           'toolu_d2',
           'Edit',
           EDIT_INPUT,
-          classifierDenied(`${DENIAL_START}${SERVER_SIDE_REASON}${DENIAL_ADVICE}`),
+          classifierDenied(
+            `${CLASSIFIER_DENIAL_START_ON_2_1_296}${SERVER_SIDE_REASON_ON_2_1_311}${CLASSIFIER_ADVICE_ON_2_1_296}`,
+          ),
         )
         expect(await texts($, surface, { component: 'ToolUse', props: edit })).toEqual([
           `${MARKER[surface]}Edit src/app.ts denied auto mode`,
@@ -3426,19 +3458,30 @@ describe('calls that the auto mode classifier denied', () => {
     viewTest(
       `keeps the row of today for a classifier text with another reason shape, and draws a generic tool as an error row with the classifier text under it, on ${surface}`,
       async (world, $) => {
-        const other = `${DENIAL_START}The command deletes the notes.${DENIAL_ADVICE}${BASH_RULE_ADVICE}`
-        world.answer = () => failed(`Error: ${other}`)
+        const other = `${CLASSIFIER_DENIAL_START_ON_2_1_296}The command deletes the notes.${CLASSIFIER_ADVICE_ON_2_1_296}${BASH_RULE_ADVICE_ON_2_1_296}`
+        world.answer = () => failed(ERRORED_OUTPUT_ON_2_1_332(other))
         const id = await runBash(world, $, BASH_INPUT)
         const bash = useProps(id, 'Bash', BASH_INPUT, world.answer(BASH_INPUT))
         expect(await texts($, surface, { component: 'ToolUse', props: bash })).toEqual([
           `${MARKER[surface]}Remove the notes rm error`,
           other,
         ])
+        const reworded = BASH_DENIED_ON_2_1_296.replace(
+          'auto mode classifier',
+          'auto-mode classifier',
+        )
+        world.answer = () => failed(ERRORED_OUTPUT_ON_2_1_332(reworded))
+        const rewordedId = await runBash(world, $, BASH_INPUT)
+        const rewordedBash = useProps(rewordedId, 'Bash', BASH_INPUT, world.answer(BASH_INPUT))
+        expect(await texts($, surface, { component: 'ToolUse', props: rewordedBash })).toEqual([
+          `${MARKER[surface]}Remove the notes rm error`,
+          reworded,
+        ])
         const denied = classifierDenied(BASH_DENIED_ON_2_1_296)
         const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, denied)
         const fetchRow = await texts($, surface, { component: 'ToolUse', props: use })
         expect(fetchRow[0]).toBe(`${MARKER[surface]}WebFetch ${PAGE_URL} error`)
-        expect(fetchRow[1]?.startsWith(DENIAL_START)).toBe(true)
+        expect(fetchRow[1]?.startsWith(CLASSIFIER_DENIAL_START_ON_2_1_296)).toBe(true)
         expect(fetchRow).toHaveLength(2)
         const result = resultProps(use.tool_use_id, 'WebFetch', denied)
         const drawnResult = await drawn($, { component: 'ToolResult', props: result }, surface)
@@ -3475,7 +3518,7 @@ describe('calls that the auto mode classifier denied', () => {
           command: 'rm notes.md',
           description: 'Remove the notes of the last planning meeting',
         }
-        world.answer = () => failed(`Error: ${BASH_DENIED_ON_2_1_296}`)
+        world.answer = () => failed(ERRORED_OUTPUT_ON_2_1_332(BASH_DENIED_ON_2_1_296))
         const id = await runBash(world, $, input)
         const bash = await rowCells(
           $,
@@ -3494,7 +3537,9 @@ describe('calls that the auto mode classifier denied', () => {
         expect(bash.least[3]).toBeGreaterThanOrEqual(displayWidth('auto mode: '))
         expect(bash.width).toBe(40)
         expect(bash.buttons).toEqual([])
-        const server = classifierDenied(`${DENIAL_START}${SERVER_SIDE_REASON}${DENIAL_ADVICE}`)
+        const server = classifierDenied(
+          `${CLASSIFIER_DENIAL_START_ON_2_1_296}${SERVER_SIDE_REASON_ON_2_1_311}${CLASSIFIER_ADVICE_ON_2_1_296}`,
+        )
         const serverInput = { ...EDIT_INPUT, file_path: `${ROOT}/${LONG_PATH}` }
         const edit = await rowCells(
           $,
@@ -3509,21 +3554,16 @@ describe('calls that the auto mode classifier denied', () => {
   }
 })
 
-const RULE_DENIED_BASH_ON_2_1_322 =
-  'Permission to use Bash with command touch other.txt has been denied.'
-const PERSON_DENIED_ON_2_1_312 =
-  "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."
-
 function erroredWith(result: string, text: string): Answer {
   return { isError: true, result, text }
 }
 
 function ruleDenied(text: string = RULE_DENIED_BASH_ON_2_1_322): Answer {
-  return erroredWith(`Error: ${text}`, text)
+  return erroredWith(ERRORED_OUTPUT_ON_2_1_332(text), text)
 }
 
 const PERSON_REJECTED_ANSWER_ON_2_1_323 = erroredWith(
-  `Error: ${PERSON_DENIED_ON_2_1_312}`,
+  ERRORED_OUTPUT_ON_2_1_332(PERSON_DENIED_ON_2_1_312),
   PERSON_DENIED_ON_2_1_312,
 )
 const PERSON_REJECTED_TOOLS = [
@@ -3533,20 +3573,24 @@ const PERSON_REJECTED_TOOLS = [
   { tool: 'Bash', input: { command: 'touch other.txt', description: 'Create the other file' } },
 ] as const
 const NOT_PERSON_REJECTED_OUTPUTS = [
-  `${PERSON_REJECTED_OUTPUT}.`,
-  `${PERSON_REJECTED_OUTPUT} for the second time`,
-  `${PERSON_REJECTED_OUTPUT}\nmore`,
-  `Error: ${PERSON_REJECTED_OUTPUT}`,
-  PERSON_REJECTED_OUTPUT.toLowerCase(),
+  `${PERSON_REJECTED_OUTPUT_ON_2_1_323}.`,
+  `${PERSON_REJECTED_OUTPUT_ON_2_1_323} for the second time`,
+  `${PERSON_REJECTED_OUTPUT_ON_2_1_323}\nmore`,
+  ERRORED_OUTPUT_ON_2_1_332(PERSON_REJECTED_OUTPUT_ON_2_1_323),
+  PERSON_REJECTED_OUTPUT_ON_2_1_323.toLowerCase(),
+  PERSON_REJECTED_OUTPUT_ON_2_1_323.replace('rejected', 'declined'),
+  ERRORED_OUTPUT_ON_2_1_332(PERSON_REJECTED_OUTPUT_ON_2_1_323.replace('rejected', 'declined')),
+]
+const ANSWERED_REJECTION_OUTPUTS = [
   PERSON_DENIED_ON_2_1_312,
-  `Error: ${PERSON_DENIED_ON_2_1_312}`,
+  ERRORED_OUTPUT_ON_2_1_332(PERSON_DENIED_ON_2_1_312),
 ]
 const ON_SCREEN = { first: 0, last: 1, of: 2 }
 
 function rejectedResultProps(
   id: string,
   tool: string,
-  output: unknown = PERSON_REJECTED_OUTPUT,
+  output: unknown = PERSON_REJECTED_OUTPUT_ON_2_1_323,
 ): RenderPropsOf['ToolResult'] {
   return { tool_use_id: id, tool, output, isErrored: true, isExpanded: false, onScreen: ON_SCREEN }
 }
@@ -3684,31 +3728,21 @@ describe('calls that a permission rule or the person denied', () => {
 
   for (const surface of SURFACES) {
     viewTest(
-      `draws no denied by you line for an output that is not the measured rejection text on ${surface}`,
+      `draws the engine result line for a rejection text in another wording on ${surface}`,
       async (world, $) => {
-        const files = PERSON_REJECTED_TOOLS.filter((call) => call.tool !== 'Bash')
-        for (const { tool, input } of files) {
+        for (const { tool, input } of PERSON_REJECTED_TOOLS) {
           const { result } = await rejectedCall(world, $, tool, input)
           for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
             const props = rejectedResultProps(result.tool_use_id, tool, output)
             const drawnResult = await drawn($, { component: 'ToolResult', props }, surface)
-            expect(drawnResult.textCount, `${tool} ${output}`).toBe(0)
+            expectEngineRow(drawnResult.tree, `${tool} ${output}`)
           }
           const done = { ...result, isErrored: false }
-          expectEngineRow(
-            (await drawn($, { component: 'ToolResult', props: done }, surface)).tree,
-            tool,
-          )
-        }
-        const bash = await rejectedCall(world, $, 'Bash', TOUCH_INPUT)
-        for (const output of NOT_PERSON_REJECTED_OUTPUTS) {
-          const props = rejectedResultProps(bash.result.tool_use_id, 'Bash', output)
-          const result = await drawn($, { component: 'ToolResult', props }, surface)
-          if (output.startsWith('Error: ')) {
-            expect(result.tree, output).toMatchObject({ type: 'Box' })
-            expect(result.textCount, output).toBe(0)
-          } else {
-            expectEngineRow(result.tree, output)
+          if (tool !== 'Bash') {
+            expectEngineRow(
+              (await drawn($, { component: 'ToolResult', props: done }, surface)).tree,
+              tool,
+            )
           }
         }
         const fetch = await genericCall(
@@ -3718,8 +3752,41 @@ describe('calls that a permission rule or the person denied', () => {
           FETCH_INPUT,
           PERSON_REJECTED_ANSWER_ON_2_1_323,
         )
-        const props = rejectedResultProps(fetch.tool_use_id, 'WebFetch')
-        expectEngineRow((await drawn($, { component: 'ToolResult', props }, surface)).tree)
+        for (const output of [PERSON_REJECTED_OUTPUT_ON_2_1_323, ...NOT_PERSON_REJECTED_OUTPUTS]) {
+          const props = rejectedResultProps(fetch.tool_use_id, 'WebFetch', output)
+          expectEngineRow(
+            (await drawn($, { component: 'ToolResult', props }, surface)).tree,
+            output,
+          )
+        }
+      },
+    )
+  }
+
+  for (const surface of SURFACES) {
+    viewTest(
+      `keeps the result empty when the result text is the text that the rejected call answered on ${surface}`,
+      async (world, $) => {
+        const files = PERSON_REJECTED_TOOLS.filter((call) => call.tool !== 'Bash')
+        for (const { tool, input } of files) {
+          const { result } = await rejectedCall(world, $, tool, input)
+          for (const output of ANSWERED_REJECTION_OUTPUTS) {
+            const props = rejectedResultProps(result.tool_use_id, tool, output)
+            const drawnResult = await drawn($, { component: 'ToolResult', props }, surface)
+            expect(drawnResult.tree, `${tool} ${output}`).toMatchObject({ type: 'Box' })
+            expect(drawnResult.textCount, `${tool} ${output}`).toBe(0)
+          }
+        }
+        const bash = await rejectedCall(world, $, 'Bash', TOUCH_INPUT)
+        const [plain, errored] = ANSWERED_REJECTION_OUTPUTS
+        const plainProps = rejectedResultProps(bash.result.tool_use_id, 'Bash', plain)
+        expectEngineRow(
+          (await drawn($, { component: 'ToolResult', props: plainProps }, surface)).tree,
+        )
+        const props = rejectedResultProps(bash.result.tool_use_id, 'Bash', errored)
+        const result = await drawn($, { component: 'ToolResult', props }, surface)
+        expect(result.tree).toMatchObject({ type: 'Box' })
+        expect(result.textCount).toBe(0)
       },
     )
   }
@@ -3754,7 +3821,7 @@ describe('calls that a permission rule or the person denied', () => {
           RULE_DENIED_BASH_ON_2_1_322.replace(' with command touch other.txt', ''),
         ]
         for (const text of others) {
-          const answer = erroredWith(`Error: ${text}`, text)
+          const answer = erroredWith(ERRORED_OUTPUT_ON_2_1_332(text), text)
           world.answer = () => answer
           const id = await runBash(world, $, TOUCH_INPUT)
           const bash = useProps(id, 'Bash', TOUCH_INPUT, answer)
@@ -4123,11 +4190,11 @@ describe('generic tool row', () => {
     viewTest(
       `draws the error text of an Error: answer that no hook refused under the row without Error: on ${surface}`,
       async (world, $) => {
-        const errored = failed('Error: Unknown skill: no-comments')
+        const errored = failed(ERRORED_OUTPUT_ON_2_1_332(UNKNOWN_SKILL_ON_2_1_332('no-comments')))
         const use = await genericCall(world, $, 'Skill', { skill: 'no-comments' }, errored)
         expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
           `${MARKER[surface]}Skill no-comments error`,
-          'Unknown skill: no-comments',
+          UNKNOWN_SKILL_ON_2_1_332('no-comments'),
         ])
         const result = resultProps(use.tool_use_id, 'Skill', errored)
         expect(
@@ -4140,7 +4207,14 @@ describe('generic tool row', () => {
       `draws a call that a hook refused as one error row and the first line of the hook message on ${surface}`,
       async (world, $) => {
         const refused = failed(
-          'Error: PreToolUse:WebFetch hook error: [python3 "${CLAUDE_PROJECT_DIR}/hooks/fetch-guard.py"]: fetch-guard: refusing a fetch outside the allowed hosts\nAllowed: docs.example.com\n',
+          ERRORED_OUTPUT_ON_2_1_332(
+            HOOK_ERROR_ON_2_1_312(
+              'PreToolUse',
+              'WebFetch',
+              'python3 "${CLAUDE_PROJECT_DIR}/hooks/fetch-guard.py"',
+            ),
+          ) +
+            'fetch-guard: refusing a fetch outside the allowed hosts\nAllowed: docs.example.com\n',
         )
         const use = await genericCall(world, $, 'WebFetch', FETCH_INPUT, refused)
         expect(await texts($, surface, { component: 'ToolUse', props: use })).toEqual([
@@ -4256,14 +4330,41 @@ describe('generic tool row', () => {
     'leaves the result of an interrupted file or generic call to the engine',
     async (_world, $) => {
       for (const tool of ['Edit', 'Read', 'WebFetch']) {
-        const props = resultProps('toolu_i2', tool, failed('Interrupted by user'))
+        const props = resultProps('toolu_i2', tool, failed(INTERRUPTED_ON_2_1_332))
         expectEngineRow((await drawn($, { component: 'ToolResult', props })).tree, tool)
-        const request = resultProps(
-          'toolu_i2',
-          tool,
-          failed('[Request interrupted by user for tool use]'),
-        )
+        const request = resultProps('toolu_i2', tool, failed(REQUEST_INTERRUPTED_ON_2_1_332))
         expectEngineRow((await drawn($, { component: 'ToolResult', props: request })).tree, tool)
+      }
+    },
+  )
+
+  viewTest(
+    'leaves the result of an interrupted call to the engine when the result text is in another wording',
+    async (world, $) => {
+      const reworded = [
+        INTERRUPTED_ON_2_1_332.replace('Interrupted', 'Stopped'),
+        ERRORED_OUTPUT_ON_2_1_332(INTERRUPTED_ON_2_1_332.replace('Interrupted', 'Stopped')),
+        REQUEST_INTERRUPTED_ON_2_1_332.replace('interrupted', 'stopped'),
+      ]
+      world.answer = () => failed(INTERRUPTED_ON_2_1_332)
+      const calls = [
+        { tool: 'Edit', id: await runTool(world, $, { tool: 'Edit', ...EDIT_INPUT }) },
+        { tool: 'Read', id: await runTool(world, $, { tool: 'Read', file_path: `${ROOT}/a.ts` }) },
+        { tool: 'Bash', id: await runBash(world, $, { command: 'sleep 60', description: 'Wait' }) },
+        {
+          tool: 'WebFetch',
+          id: (await genericCall(world, $, 'WebFetch', FETCH_INPUT, failed(INTERRUPTED_ON_2_1_332)))
+            .tool_use_id,
+        },
+      ]
+      for (const { tool, id } of calls) {
+        for (const output of reworded) {
+          const props = { tool_use_id: id, tool, output, isErrored: true }
+          expectEngineRow(
+            (await drawn($, { component: 'ToolResult', props })).tree,
+            `${tool} ${output}`,
+          )
+        }
       }
     },
   )
@@ -4553,7 +4654,7 @@ describe('/simple show', () => {
     world.delayMs = 2500
     await runBash(world, $, { command: 'node fix.mjs', description: 'Fix' })
     world.delayMs = 0
-    world.answer = () => failed('Error: Exit code 1\nnope')
+    world.answer = () => failed(`${EXITED_ON_2_1_332(1)}\nnope`)
     await runBash(world, $, { command: 'false', description: 'Fail' })
 
     const second = await commandText($, 'show 2')
@@ -4567,14 +4668,14 @@ describe('/simple show', () => {
     expect(second).toContain(`--- ${ROOT}/docs/new.md`)
     const last = await commandText($, 'show 1')
     expect(last).toContain('Call 1 of the last 3 (1 is the last): Bash, errored, 0.0s')
-    expect(last).toContain('Error: Exit code 1\nnope')
+    expect(last).toContain(`${EXITED_ON_2_1_332(1)}\nnope`)
     expect(last).toContain('File diff: not reported by the engine.')
     expect(last).not.toContain('File diff: none.')
     expect(await commandText($, 'show 3')).toContain('"command": "echo first"')
   })
 
   viewTest('says the engine reported no file diff for an errored Bash call', async (world, $) => {
-    world.answer = () => failed('Error: Exit code 1\n')
+    world.answer = () => failed(`${EXITED_ON_2_1_332(1)}\n`)
     await runBash(world, $, { command: 'echo x > f; false', description: 'Write then fail' })
     const shown = await commandText($, 'show 1')
     expect(shown).toContain('File diff: not reported by the engine.')
@@ -4833,7 +4934,7 @@ describe('fallback to the engine row', () => {
   viewTest('when the call was interrupted', async (world, $) => {
     const input = { command: 'sleep 60', description: 'Wait' }
     const id = await runBash(world, $, input)
-    const props = useProps(id, 'Bash', input, failed('Error: Exit code 130\n^C'), {
+    const props = useProps(id, 'Bash', input, failed(`${EXITED_ON_2_1_332(130)}\n^C`), {
       isInterrupted: true,
     })
     expectEngineRow((await drawn($, { component: 'ToolUse', props })).tree)
@@ -4841,7 +4942,7 @@ describe('fallback to the engine row', () => {
       (
         await drawn($, {
           component: 'ToolResult',
-          props: resultProps(id, 'Bash', failed('Interrupted by user')),
+          props: resultProps(id, 'Bash', failed(INTERRUPTED_ON_2_1_332)),
         })
       ).tree,
     )

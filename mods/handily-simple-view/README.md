@@ -176,8 +176,8 @@ The auto mode classifier or a permission rule can deny a call before it runs. A 
   result block is empty.
 - In a narrow terminal, the path, the pattern, the description or the command is cut first,
   then the reason of the classifier. `denied`, `auto mode` and `by a rule` are never cut.
-- A text in another shape keeps the row of today. A tool with the generic row keeps that row with
-  `error`.
+- A text in another shape draws the `error` row with the text under it, and never `denied`. A
+  tool with the generic row keeps that row with `error`.
 
 ### Denied by you
 
@@ -190,7 +190,8 @@ When you answer No to the permission prompt of a `Bash`, `Edit`, `Write`, `Read`
 ```
 
 - The mod reads the result text `User rejected tool use`, captured on Claude Code 2.1.323. Any
-  other text draws no such line, and the result of today stays.
+  other text draws no such line. When that text is not the error text that the call answered,
+  the engine draws its own result line, so a rejection in a new wording stays in view.
 - `denied` and `by you` are red and never cut. The line has no buttons.
 - `Edit` and `Write` keep the row of the engine. `Bash`, `Read`, `Grep` and `Glob` keep the row
   that simple-view drew before the run, with the dim `…`.
@@ -417,6 +418,9 @@ simple-view draws the engine row unchanged in each of these cases:
 - A `Bash` call errored with a text that does not start with `Error:`.
 - A failed call whose error text the mod did not keep and whose output is no error text, or an
   error text that starts with `Interrupted by user` or `[Request interrupted by user`.
+- A failed call whose output is not the error text that its `tool.call` answered. The person
+  rejection of Claude Code 2.1.323 has such an output, and so can an interruption or a denial in
+  a wording that the mod does not know.
 - The output or the input is not a shape that the mod reads, or a staged `Edit` or `Write` that
   did not change the file. A `Read` of an image, a PDF, a notebook or an unchanged file is not a
   shape that the mod reads.

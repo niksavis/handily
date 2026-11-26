@@ -123,6 +123,12 @@ function bareErrorText(text: string): string {
   return bare.startsWith(ERROR_PREFIX) ? bare : `${ERROR_PREFIX}${bare}`
 }
 
+export function isAnsweredText(output: string, kept: string): boolean {
+  const shown = bareErrorText(output)
+  const answered = bareErrorText(kept)
+  return shown.startsWith(answered) || answered.startsWith(shown)
+}
+
 export function erroredText(output: unknown, kept: string | undefined): string | null {
   if (typeof output === 'string') return output.replace(TOOL_USE_ERROR_TAGS, '')
   return kept === undefined ? null : bareErrorText(kept)
