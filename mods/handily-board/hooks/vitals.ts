@@ -1,5 +1,6 @@
 import type { SessionMeasureInput, SessionRateLimit, SessionUsage } from 'claude-code'
 import { type LimitReadings, NO_READINGS, withReadings } from './pace'
+import { NO_WINDOWS, type SnapshotWindows } from './usage-snapshot'
 
 export const CONTEXT_HIGH = 80
 
@@ -21,6 +22,7 @@ export type Vitals = {
   window: number | undefined
   limits: readonly SessionRateLimit[]
   readings: LimitReadings
+  snapshot: SnapshotWindows
   usd: number | undefined
   turnStartUsd: number | undefined
   isTurnRunning: boolean
@@ -41,6 +43,7 @@ export const EMPTY_VITALS: Vitals = {
   window: undefined,
   limits: [],
   readings: NO_READINGS,
+  snapshot: NO_WINDOWS,
   usd: undefined,
   turnStartUsd: undefined,
   isTurnRunning: false,
@@ -148,7 +151,16 @@ export function withCompaction(vitals: Vitals): Vitals {
 }
 
 export function withClear(vitals: Vitals): Vitals {
-  return { ...EMPTY_VITALS, hasNoUsage: vitals.hasNoUsage, readings: vitals.readings }
+  return {
+    ...EMPTY_VITALS,
+    hasNoUsage: vitals.hasNoUsage,
+    readings: vitals.readings,
+    snapshot: vitals.snapshot,
+  }
+}
+
+export function withSnapshot(vitals: Vitals, snapshot: SnapshotWindows): Vitals {
+  return { ...vitals, snapshot }
 }
 
 export function cents(usd: number): number {

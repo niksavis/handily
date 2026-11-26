@@ -22,6 +22,16 @@ import { NO_REQUEST } from './hooks/request'
 import { sessionBlockText } from './hooks/session'
 import { PLAIN_SIGNALS } from './hooks/toasting'
 import { EMPTY_VITALS } from './hooks/vitals'
+import {
+  type SnapshotWindow,
+  type WindowReading,
+  folderRule,
+  mergedWindow,
+  mergedWindows,
+  planOf,
+  validWindow,
+  windowPlan,
+} from './hooks/usage-snapshot'
 import { NO_TURN } from './hooks/background'
 import {
   ROOT,
@@ -33,6 +43,7 @@ import {
   fakeWorkitems,
   type World,
   type WorldOptions,
+  TEST_SNAPSHOT_DIR,
   SKIPPED_COMPACTION,
   SUMMARY,
   world,
@@ -1362,6 +1373,9 @@ const DETAIL_SCREENS: readonly {
       '    limits 5h 31% · 7d 13%',
       '    resets 5h in 2h · 7d in 4d',
       '    pace after 15m of readings',
+      '    5h ~53% at reset',
+      '    7d ~30% at reset',
+      '    plan start',
       '    checks 5 · 5 allowed',
       '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
@@ -1379,6 +1393,8 @@ const DETAIL_SCREENS: readonly {
       '    limits 5h 31% · 7d 13%',
       '    resets 5h in 2h · 7d in 4d',
       '    pace after 15m of readings',
+      '    5h ~53% at reset · 7d ~30% at reset',
+      '    plan start',
       '    checks 5 · 5 allowed',
       '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
@@ -1394,7 +1410,8 @@ const DETAIL_SCREENS: readonly {
       '    trend after 2 turns',
       '    no breakdown on this host',
       '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
-      '    pace after 15m of readings',
+      '    pace after 15m of readings · 5h ~53% at reset · 7d ~30% at reset',
+      '    plan start',
       '    checks 5 · 5 allowed',
       '    file 5 · shell 0 · other 0',
       '    [ last 5 checks ]',
@@ -1597,6 +1614,8 @@ describe('the Session details keep only the facts of the session that runs now',
           '    limits 5h 31% · 7d 13%',
           '    resets 5h in 2h · 7d in 4d',
           '    pace after 15m of readings',
+          '    5h ~53% at reset · 7d ~30% at reset',
+          '    plan start',
         ])
       }
     },
@@ -1636,10 +1655,11 @@ describe('the Session details keep only the facts of the session that runs now',
     await measure($, { percent: 62, usd: 4.18, limits })
     for (const surface of SURFACES) {
       const lines = await sessionDetails($, surface, 'dock', 41)
-      expect(lines.slice(-3)).toEqual([
+      expect(lines.slice(-4)).toEqual([
         '    limits 5h 31% · 7d 13%',
         '    resets 5h now · 7d in 4d',
         '    pace after 15m of readings',
+        '    7d ~31% at reset · plan start',
       ])
     }
   })
@@ -1662,6 +1682,8 @@ describe('the Session details keep only the facts of the session that runs now',
           '    limits 5h 31% · 7d 13%',
           '    resets 5h in 2h · 7d in 4d',
           '    pace after 15m of readings',
+          '    5h ~53% at reset · 7d ~30% at reset',
+          '    plan start',
         ])
       }
     },
@@ -2492,7 +2514,21 @@ describe(PACE_CRITERION, () => {
           'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% full ~1h resets 2h · 7d ▱▱▱▱▱ 13% resets 4d',
         )
         const lines = await sessionDetails($, surface, 'dock', 41)
-        expect(paceRows(lines)).toEqual(['    pace 5h full ~1h · 7d no growth'])
+        expect(paceRows(lines)).toEqual(
+          bySurface(
+            surface,
+            [
+              '    pace 5h full ~1h · 7d no growth',
+              '    5h ~129% at reset',
+              '    7d ~30% at reset · plan close idle',
+            ],
+            [
+              '    pace 5h full ~1h · 7d no growth',
+              '    5h ~129% at reset · 7d ~30% at reset',
+              '    plan close idle',
+            ],
+          ),
+        )
       }
     },
   )
@@ -2542,7 +2578,21 @@ describe(PACE_CRITERION, () => {
       await measure($, { percent: 62, usd: 4.8, limits: paceLimits(62) })
       for (const surface of SURFACES) {
         const lines = await sessionDetails($, surface, 'dock', 41)
-        expect(paceRows(lines)).toEqual(['    pace 5h full ~1h · 7d no growth'])
+        expect(paceRows(lines)).toEqual(
+          bySurface(
+            surface,
+            [
+              '    pace 5h full ~1h · 7d no growth',
+              '    5h ~129% at reset',
+              '    7d ~30% at reset · plan close idle',
+            ],
+            [
+              '    pace 5h full ~1h · 7d no growth',
+              '    5h ~129% at reset · 7d ~30% at reset',
+              '    plan close idle',
+            ],
+          ),
+        )
       }
     },
   )
@@ -2554,12 +2604,22 @@ describe(NO_PACE_CRITERION, () => {
     readings: readonly { after: number; fiveHour: number; reset?: number }[]
     later?: number
     pace: readonly string[]
+    desktopPace?: readonly string[]
     line?: string
   }[] = [
     {
       name: 'one reading',
       readings: [{ after: 0, fiveHour: 62 }],
-      pace: ['    pace after 15m of readings'],
+      pace: [
+        '    pace after 15m of readings',
+        '    5h ~124% at reset',
+        '    7d ~30% at reset · plan close idle',
+      ],
+      desktopPace: [
+        '    pace after 15m of readings',
+        '    5h ~124% at reset · 7d ~30% at reset',
+        '    plan close idle',
+      ],
     },
     {
       name: 'two readings 10 minutes apart',
@@ -2567,7 +2627,16 @@ describe(NO_PACE_CRITERION, () => {
         { after: 0, fiveHour: 54 },
         { after: 10 * MINUTE, fiveHour: 62 },
       ],
-      pace: ['    pace after 15m of readings'],
+      pace: [
+        '    pace after 15m of readings',
+        '    5h ~116% at reset',
+        '    7d ~30% at reset · plan close idle',
+      ],
+      desktopPace: [
+        '    pace after 15m of readings',
+        '    5h ~116% at reset · 7d ~30% at reset',
+        '    plan close idle',
+      ],
     },
     {
       name: 'flat use over 16 minutes',
@@ -2576,7 +2645,11 @@ describe(NO_PACE_CRITERION, () => {
         { after: 8 * MINUTE, fiveHour: 62 },
         { after: 8 * MINUTE, fiveHour: 62 },
       ],
-      pace: ['    pace 5h no growth · 7d no growth'],
+      pace: [
+        '    pace 5h no growth · 7d no growth',
+        '    5h ~62% at reset · 7d ~30% at reset',
+        '    plan start',
+      ],
     },
     {
       name: 'falling use',
@@ -2585,23 +2658,45 @@ describe(NO_PACE_CRITERION, () => {
         { after: 8 * MINUTE, fiveHour: 68 },
         { after: 8 * MINUTE, fiveHour: 62 },
       ],
-      pace: ['    pace 5h no pace yet · 7d no growth'],
+      pace: [
+        '    pace 5h no pace yet · 7d no growth',
+        '    5h ~123% at reset',
+        '    7d ~30% at reset · plan close idle',
+      ],
+      desktopPace: [
+        '    pace 5h no pace yet · 7d no growth',
+        '    5h ~123% at reset · 7d ~30% at reset',
+        '    plan close idle',
+      ],
     },
     {
       name: 'a last reading 31 minutes old',
       readings: RISING,
       later: 31 * MINUTE,
-      pace: ['    pace: no reading for 31m'],
+      pace: [
+        '    pace: no reading for 31m',
+        '    5h ~114% at reset',
+        '    7d ~30% at reset · plan close idle',
+      ],
+      desktopPace: [
+        '    pace: no reading for 31m',
+        '    5h ~114% at reset · 7d ~30% at reset',
+        '    plan close idle',
+      ],
       line: 'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% resets 1h · 7d ▱▱▱▱▱ 13% resets 4d',
     },
     {
       name: 'a pace that fills after the reset',
       readings: RISING.map((reading) => ({ ...reading, reset: PACE_START + 46 * MINUTE })),
-      pace: ['    pace 5h full after reset', '    7d no growth'],
+      pace: [
+        '    pace 5h full after reset',
+        '    7d no growth · 5h ~77% at reset',
+        '    7d ~30% at reset · plan start',
+      ],
       line: 'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▱▱ 62% resets 30m · 7d ▱▱▱▱▱ 13% resets 4d',
     },
   ]
-  for (const { name, readings, later, pace, line } of cases) {
+  for (const { name, readings, later, pace, desktopPace, line } of cases) {
     test(
       `${name} shows no projection on the Session line and says why in the details`,
       withWorkitems,
@@ -2612,7 +2707,7 @@ describe(NO_PACE_CRITERION, () => {
         for (const surface of SURFACES) {
           expect(await sessionLine($, surface, 'inline', 76)).toBe(line ?? NO_PACE_LINE)
           const lines = await sessionDetails($, surface, 'dock', 41)
-          expect(paceRows(lines)).toEqual(pace)
+          expect(paceRows(lines)).toEqual(bySurface(surface, pace, desktopPace ?? pace))
           expect(lines.join('\n')).not.toContain('full ~')
         }
       },
@@ -2634,7 +2729,11 @@ describe(NO_PACE_CRITERION, () => {
           'ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $4.80 · 5h ▰▰▰▰▱ 90% high resets 1h · 7d ▱▱▱▱▱ 13% resets 4d',
         )
         const lines = await sessionDetails($, surface, 'dock', 41)
-        expect(paceRows(lines)).toEqual(['    pace 5h no reading for 20m', '    7d no growth'])
+        expect(paceRows(lines)).toEqual([
+          '    pace 5h no reading for 20m',
+          '    7d no growth · 5h ~167% at reset',
+          '    7d ~30% at reset · plan close idle',
+        ])
       }
     },
   )
@@ -3142,6 +3241,425 @@ describe(MAIN_STEP_CRITERION, () => {
           [PLUGIN, 'returned'],
           ['test', 'returned'],
         ])
+      },
+    )
+  }
+})
+
+const SNAPSHOT_CRITERION =
+  'When the session gets a new rate limit reading, the board shall merge it into handily-board.json in the usage snapshot folder by spec v1 without a rename or a child process, and the pace line at 40 and at 120 columns shall show the projected percent at reset and the word start, hold or close idle.'
+
+const SNAPSHOT_AT = `${TEST_SNAPSHOT_DIR}/handily-board.json`
+const SNAPSHOT_HEAD = { format: 'basicly.usage-snapshot', version: 1, writer: 'handily-board' }
+const NOW_S = Math.floor(PACE_START / 1000)
+const FIVE_RESET_S = Math.floor(PACE_RESET / 1000)
+const WEEK_RESET_S = Math.floor(WEEK_RESET / 1000)
+
+function fileOf(seen: World, path = SNAPSHOT_AT): unknown {
+  const text = seen.files.get(path)
+  return text === undefined ? undefined : JSON.parse(text)
+}
+
+function fiveHourOnly(percent: number, reset = PACE_RESET): SessionRateLimit[] {
+  return [{ kind: 'five_hour', percentUsed: percent, resetsAt: new Date(reset).toISOString() }]
+}
+
+function storedText(windows: Record<string, unknown>, writer = 'handily-board'): string {
+  return JSON.stringify({ ...SNAPSHOT_HEAD, writer, written_at: NOW_S - 600, windows })
+}
+
+function window(
+  used: number,
+  resetsAt: number,
+  readings: readonly (readonly [number, number])[],
+): SnapshotWindow {
+  return {
+    used_percentage: used,
+    resets_at: resetsAt,
+    read_at: readings.at(-1)?.[0] ?? 0,
+    readings,
+  }
+}
+
+function reading(percent: number, at: number, resetsAt = FIVE_RESET_S): WindowReading {
+  return { kind: 'five_hour', percent, resetsAt, at }
+}
+
+describe(SNAPSHOT_CRITERION, () => {
+  test(
+    'rising readings write handily-board.json in place in the folder of BASICLY_USAGE_SNAPSHOT_DIR by spec v1, each window with its readings oldest first',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, RISING)
+      expect(fileOf(seen)).toEqual({
+        ...SNAPSHOT_HEAD,
+        written_at: NOW_S + 16 * 60,
+        windows: {
+          five_hour: {
+            used_percentage: 62,
+            resets_at: FIVE_RESET_S,
+            read_at: NOW_S + 16 * 60,
+            readings: [
+              [NOW_S, 54],
+              [NOW_S + 8 * 60, 58],
+              [NOW_S + 16 * 60, 62],
+            ],
+          },
+          seven_day: {
+            used_percentage: 12.6,
+            resets_at: WEEK_RESET_S,
+            read_at: NOW_S + 16 * 60,
+            readings: [
+              [NOW_S, 12.6],
+              [NOW_S + 8 * 60, 12.6],
+              [NOW_S + 16 * 60, 12.6],
+            ],
+          },
+        },
+      })
+      expect(seen.writes.map((one) => one.path)).toEqual([SNAPSHOT_AT, SNAPSHOT_AT, SNAPSHOT_AT])
+      expect(seen.logs.filter((line) => line.includes('usage snapshot'))).toEqual([])
+    },
+  )
+
+  test(
+    'a reading that changes nothing writes nothing: a lower percent, a spend limit or no limit leaves the file as it was',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await paceReadings($, seen, RISING)
+      const written = seen.files.get(SNAPSHOT_AT)
+      await seen.clock.advance(5 * MINUTE)
+      await measure($, { percent: 62, usd: 4.8, limits: fiveHourOnly(60) })
+      await measure($, {
+        percent: 62,
+        usd: 4.8,
+        limits: [
+          { kind: 'spend_limit', percentUsed: 40, resetsAt: new Date(PACE_RESET).toISOString() },
+        ],
+      })
+      await measure($, { percent: 62, usd: 4.8, limits: [{ kind: 'five_hour', percentUsed: 70 }] })
+      expect(seen.writes).toHaveLength(3)
+      expect(seen.files.get(SNAPSHOT_AT)).toBe(written)
+    },
+  )
+
+  test(
+    'the board reads its file back and merges into it, so the readings that another session wrote stay',
+    withWorkitems,
+    async ($, on) => {
+      const stored = storedText({
+        five_hour: window(50, FIVE_RESET_S, [[NOW_S - 600, 50]]),
+        seven_day: { broken: true },
+      })
+      const seen = world(on, { snapshot: { files: { [SNAPSHOT_AT]: stored } } })
+      await paceReadings($, seen, [{ after: 0, fiveHour: 54 }])
+      expect(fileOf(seen)).toEqual({
+        ...SNAPSHOT_HEAD,
+        written_at: NOW_S,
+        windows: {
+          five_hour: window(54, FIVE_RESET_S, [
+            [NOW_S - 600, 50],
+            [NOW_S, 54],
+          ]),
+          seven_day: window(12.6, WEEK_RESET_S, [[NOW_S, 12.6]]),
+        },
+      })
+    },
+  )
+
+  const UNREAD_FILES = [
+    { name: 'a file that does not parse counts as empty', text: '{ not json' },
+    {
+      name: 'a file of another writer counts as empty',
+      text: storedText({ five_hour: window(50, FIVE_RESET_S, [[NOW_S - 600, 50]]) }, 'other'),
+    },
+  ]
+  for (const { name, text } of UNREAD_FILES) {
+    test(`${name}, so the board writes only its own readings`, withWorkitems, async ($, on) => {
+      const seen = world(on, { snapshot: { files: { [SNAPSHOT_AT]: text } } })
+      await paceReadings($, seen, [{ after: 0, fiveHour: 54 }])
+      expect(fileOf(seen)).toEqual({
+        ...SNAPSHOT_HEAD,
+        written_at: NOW_S,
+        windows: {
+          five_hour: window(54, FIVE_RESET_S, [[NOW_S, 54]]),
+          seven_day: window(12.6, WEEK_RESET_S, [[NOW_S, 12.6]]),
+        },
+      })
+    })
+  }
+
+  test(
+    'a failed write logs one line, the next failure with the same reason logs nothing, and the plan still shows',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, { snapshot: { writeDenial: 'EACCES: permission denied' } })
+      await paceReadings($, seen, RISING)
+      const failures = seen.logs.filter((line) => line.includes('usage snapshot'))
+      expect(failures).toHaveLength(1)
+      expect(failures[0]).toMatch(
+        /^handily-board: the usage snapshot was not written: .*EACCES: permission denied$/u,
+      )
+      expect(seen.writes).toEqual([])
+      for (const surface of SURFACES) {
+        const lines = await sessionDetails($, surface, 'dock', 41)
+        expect(paceRows(lines)).toEqual(
+          bySurface(
+            surface,
+            [
+              '    pace 5h full ~1h · 7d no growth',
+              '    5h ~129% at reset',
+              '    7d ~30% at reset · plan close idle',
+            ],
+            [
+              '    pace 5h full ~1h · 7d no growth',
+              '    5h ~129% at reset · 7d ~30% at reset',
+              '    plan close idle',
+            ],
+          ),
+        )
+      }
+    },
+  )
+
+  const FOLDERS = [
+    {
+      name: 'under an absolute XDG_STATE_HOME',
+      snapshot: { env: { XDG_STATE_HOME: '/xdg', HOME: '/home/person' }, platform: 'linux' },
+      path: '/xdg/basicly/usage-snapshots/handily-board.json',
+    },
+    {
+      name: 'under HOME when XDG_STATE_HOME is relative',
+      snapshot: { env: { XDG_STATE_HOME: 'xdg', HOME: '/home/person' }, platform: 'wsl' },
+      path: '/home/person/.local/state/basicly/usage-snapshots/handily-board.json',
+    },
+    {
+      name: 'under LOCALAPPDATA on Windows',
+      snapshot: {
+        env: { LOCALAPPDATA: '/c/Users/person/AppData/Local', HOME: '/home/person' },
+        platform: 'windows',
+      },
+      path: '/c/Users/person/AppData/Local/basicly/usage-snapshots/handily-board.json',
+    },
+  ] as const
+  for (const { name, snapshot, path } of FOLDERS) {
+    test(
+      `with no BASICLY_USAGE_SNAPSHOT_DIR the board writes ${name}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { snapshot })
+        await paceReadings($, seen, [{ after: 0, fiveHour: 54 }])
+        expect(seen.writes.map((one) => one.path)).toEqual([path])
+      },
+    )
+  }
+
+  test(
+    'a relative BASICLY_USAGE_SNAPSHOT_DIR writes nothing and logs the reason once',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on, {
+        snapshot: { env: { BASICLY_USAGE_SNAPSHOT_DIR: 'state/snapshots' } },
+      })
+      await paceReadings($, seen, RISING)
+      expect(seen.writes).toEqual([])
+      expect(seen.logs.filter((line) => line.includes('usage snapshot'))).toEqual([
+        'handily-board: the usage snapshot was not written: BASICLY_USAGE_SNAPSHOT_DIR is not an absolute path',
+      ])
+    },
+  )
+
+  test('the folder rule takes the first absolute folder of the spec, and names why when none is', () => {
+    expect(folderRule({ snapshotDir: '/snap/', stateHome: '/xdg', home: '/h' })).toEqual({
+      folder: '/snap',
+    })
+    expect(folderRule({ snapshotDir: '', stateHome: '/xdg/', home: '/h' })).toEqual({
+      folder: '/xdg/basicly/usage-snapshots',
+    })
+    expect(folderRule({ stateHome: 'xdg', home: '/h' })).toEqual({
+      folder: '/h/.local/state/basicly/usage-snapshots',
+    })
+    expect(folderRule({ isWindows: true, localAppData: 'D:/Local', home: '/h' })).toEqual({
+      folder: 'D:/Local/basicly/usage-snapshots',
+    })
+    expect(folderRule({ isWindows: true, home: '/h' })).toEqual({
+      refusal: 'LOCALAPPDATA is not an absolute path',
+    })
+    expect(folderRule({ home: 'h' })).toEqual({
+      refusal: 'no absolute XDG_STATE_HOME and no absolute HOME',
+    })
+  })
+
+  test('the merge drops a reading whose window already reset, or that moved back, fell or came late', () => {
+    const kept = window(60, FIVE_RESET_S, [
+      [NOW_S - 120, 58],
+      [NOW_S - 60, 60],
+    ])
+    expect(mergedWindow(kept, reading(70, NOW_S, NOW_S), NOW_S)).toBe(kept)
+    expect(mergedWindow(kept, reading(70, NOW_S, FIVE_RESET_S - 601), NOW_S)).toBe(kept)
+    expect(mergedWindow(kept, reading(59, NOW_S), NOW_S)).toBe(kept)
+    expect(mergedWindow(kept, reading(70, NOW_S - 61), NOW_S)).toBe(kept)
+    expect(mergedWindows({ five_hour: kept, seven_day: 'kept' }, [], NOW_S)).toEqual({
+      five_hour: kept,
+      seven_day: 'kept',
+    })
+  })
+
+  test('the merge starts a new window when the stored one is invalid, already reset, or its reset moved forward more than 600 s', () => {
+    const fresh = window(20, FIVE_RESET_S + 601, [[NOW_S, 20]])
+    const kept = window(60, FIVE_RESET_S, [[NOW_S - 60, 60]])
+    expect(mergedWindow(kept, reading(20, NOW_S, FIVE_RESET_S + 601), NOW_S)).toEqual(fresh)
+    expect(mergedWindow({ used_percentage: 'x' }, reading(20, NOW_S), NOW_S)).toEqual(
+      window(20, FIVE_RESET_S, [[NOW_S, 20]]),
+    )
+    expect(mergedWindow(window(60, NOW_S, [[NOW_S - 60, 60]]), reading(20, NOW_S), NOW_S)).toEqual(
+      window(20, FIVE_RESET_S, [[NOW_S, 20]]),
+    )
+  })
+
+  test('the merge appends a reading, the newest gives way to one less than 60 s after the one before it, and at most 360 stay', () => {
+    const kept = window(60, FIVE_RESET_S, [
+      [NOW_S - 100, 58],
+      [NOW_S - 50, 60],
+    ])
+    expect(mergedWindow(kept, reading(61, NOW_S - 41, FIVE_RESET_S + 600), NOW_S)).toEqual(
+      window(61, FIVE_RESET_S + 600, [
+        [NOW_S - 100, 58],
+        [NOW_S - 41, 61],
+      ]),
+    )
+    expect(mergedWindow(kept, reading(61, NOW_S - 40), NOW_S)).toEqual(
+      window(61, FIVE_RESET_S, [
+        [NOW_S - 100, 58],
+        [NOW_S - 50, 60],
+        [NOW_S - 40, 61],
+      ]),
+    )
+    const full = window(
+      50,
+      FIVE_RESET_S,
+      Array.from({ length: 360 }, (_unused, index) => [NOW_S - 360 * 60 + index * 60, 50] as const),
+    )
+    const merged = validWindow(mergedWindow(full, reading(51, NOW_S), NOW_S))
+    expect(merged?.readings).toHaveLength(360)
+    expect(merged?.readings.at(-1)).toEqual([NOW_S, 51])
+    expect(merged?.readings[0]).toEqual([NOW_S - 359 * 60, 50])
+  })
+
+  test('the 5 hour plan uses the rise of the last 60 minutes over 15 minutes or more, else the window average after 30 minutes, else no rate', () => {
+    const reset = NOW_S + 2 * 3600
+    const rising = window(60, reset, [
+      [NOW_S - 2 * 3600, 10],
+      [NOW_S - 1800, 50],
+      [NOW_S, 60],
+    ])
+    expect(windowPlan('five_hour', rising, NOW_S)).toEqual({
+      kind: 'five_hour',
+      projected: 100,
+      word: 'close idle',
+    })
+    const short = window(45, reset, [
+      [NOW_S - 600, 40],
+      [NOW_S, 45],
+    ])
+    expect(windowPlan('five_hour', short, NOW_S)).toEqual({
+      kind: 'five_hour',
+      projected: 75,
+      word: 'start',
+    })
+    const early = window(45, NOW_S + 5 * 3600 - 1799, [[NOW_S, 45]])
+    expect(windowPlan('five_hour', early, NOW_S)).toEqual({
+      kind: 'five_hour',
+      projected: 45,
+      word: 'start',
+    })
+  })
+
+  test('the weekly plan uses the window average after 24 hours, else no rate', () => {
+    const reset = NOW_S + 4 * 86400
+    expect(windowPlan('seven_day', window(30, reset, [[NOW_S, 30]]), NOW_S)).toEqual({
+      kind: 'seven_day',
+      projected: 70,
+      word: 'start',
+    })
+    const early = window(30, NOW_S + 7 * 86400 - 86399, [[NOW_S, 30]])
+    expect(windowPlan('seven_day', early, NOW_S)).toEqual({
+      kind: 'seven_day',
+      projected: 30,
+      word: 'start',
+    })
+  })
+
+  test('the word is close idle at 100 percent projected or 95 used, hold at 90 projected, start below or after the reset, and the plan takes the most careful word', () => {
+    const flat = (used: number, reset = NOW_S + 3600) =>
+      window(used, reset, [
+        [NOW_S - 1800, used],
+        [NOW_S, used],
+      ])
+    expect(windowPlan('five_hour', flat(95), NOW_S).word).toBe('close idle')
+    expect(windowPlan('five_hour', flat(90), NOW_S).word).toBe('hold')
+    expect(windowPlan('five_hour', flat(89.9), NOW_S).word).toBe('start')
+    expect(windowPlan('five_hour', flat(99, NOW_S), NOW_S)).toEqual({
+      kind: 'five_hour',
+      projected: undefined,
+      word: 'start',
+    })
+    expect(planOf({ five_hour: flat(50), seven_day: flat(91) }, NOW_S)?.word).toBe('hold')
+    expect(planOf({ five_hour: flat(96), seven_day: flat(91) }, NOW_S)?.word).toBe('close idle')
+    expect(planOf({ five_hour: 'broken' }, NOW_S)).toBeUndefined()
+  })
+
+  const PLAN_SCREENS = [
+    {
+      name: 'close idle',
+      readings: RISING,
+      wide: '    pace 5h full ~1h · 7d no growth · 5h ~129% at reset · 7d ~30% at reset · plan close idle',
+      narrow: [
+        '    pace 5h full ~1h · 7d no growth',
+        '    5h ~129% at reset · 7d ~30% at reset',
+        '    plan close idle',
+      ],
+    },
+    {
+      name: 'hold',
+      readings: [
+        { after: 0, fiveHour: 40 },
+        { after: 15 * MINUTE, fiveHour: 45 },
+      ],
+      wide: '    pace 5h full after reset · 7d no growth · 5h ~90% at reset · 7d ~30% at reset · plan hold',
+      narrow: [
+        '    pace 5h full after reset',
+        '    7d no growth · 5h ~90% at reset',
+        '    7d ~30% at reset · plan hold',
+      ],
+    },
+    {
+      name: 'start',
+      readings: [
+        { after: 0, fiveHour: 40 },
+        { after: 15 * MINUTE, fiveHour: 44 },
+      ],
+      wide: '    pace 5h full after reset · 7d no growth · 5h ~80% at reset · 7d ~30% at reset · plan start',
+      narrow: [
+        '    pace 5h full after reset',
+        '    7d no growth · 5h ~80% at reset',
+        '    7d ~30% at reset · plan start',
+      ],
+    },
+  ]
+  for (const { name, readings, wide, narrow } of PLAN_SCREENS) {
+    test(
+      `the pace line shows the projected percent at reset and ${name} at 120 and at 40 columns, as mocks 24.1 and 24.2`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        await paceReadings($, seen, readings)
+        for (const surface of SURFACES) {
+          expect(paceRows(await sessionDetails($, surface, 'inline', 120))).toEqual([wide])
+          expect(paceRows(await sessionDetails($, surface, 'inline', 40))).toEqual(narrow)
+        }
       },
     )
   }

@@ -1298,7 +1298,7 @@ for (const surface of SURFACES) {
             '    trend after 2 turns',
             '    no breakdown on this host',
             '    limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d',
-            '    pace after 15m of readings',
+            '    pace after 15m of readings · 5h ~53% at reset · 7d ~30% at reset · plan start',
             '    Context 124k of 200k tokens. Limits reset: 5h in 2 hours, 7d in 4 days.',
             '    Checks 2: 1 allowed, 1 asked (the classifier or you), 0 denied.',
             '    file 1 · shell 1 · other 0',

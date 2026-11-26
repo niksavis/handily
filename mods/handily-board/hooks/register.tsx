@@ -9,6 +9,7 @@ import type {
   Register,
   RenderSurface,
   SessionEndReason,
+  SessionRateLimit,
   TelemetryLogInput,
   Timer,
   ToolCheckInput,
@@ -293,9 +294,18 @@ import {
   withTurnEnd,
   withTurnSpawn,
   withTurnStart,
+  withSnapshot,
   withUsage,
   withoutUsage,
 } from './vitals'
+import {
+  type SnapshotHost,
+  type SnapshotKeep,
+  type SnapshotVariable,
+  type SnapshotWindows,
+  noteSnapshot,
+  snapshotKeep,
+} from './usage-snapshot'
 
 const NEW_SESSION_REASONS: ReadonlySet<SessionEndReason> = new Set<SessionEndReason>([
   'clear',
@@ -1489,10 +1499,58 @@ async function warnFromVitals($: EngineInterface, keep: WarnKeep, vitals: Vitals
   await warnLimits(warnHost($), keep, vitals.limits, vitals.readings)
 }
 
-async function readUsage($: EngineInterface, keep: VitalsKeep): Promise<void> {
+function snapshotVariable($: EngineInterface, name: SnapshotVariable): Promise<string | undefined> {
+  switch (name) {
+    case 'BASICLY_USAGE_SNAPSHOT_DIR':
+      return $.env.get('BASICLY_USAGE_SNAPSHOT_DIR')
+    case 'XDG_STATE_HOME':
+      return $.env.get('XDG_STATE_HOME')
+    case 'HOME':
+      return $.env.get('HOME')
+    case 'LOCALAPPDATA':
+      return $.env.get('LOCALAPPDATA')
+  }
+}
+
+function snapshotHost($: EngineInterface): SnapshotHost {
+  return {
+    now: () => $.clock.now(),
+    variable: (name) => snapshotVariable($, name),
+    isWindows: async () => (await $.session.info()).platform === 'windows',
+    read: (path) => $.fs.read(path),
+    write: (path, text) => $.fs.write(path, text),
+    log: (line) => {
+      $.ui.log(line)
+    },
+  }
+}
+
+async function mergedSnapshot(
+  $: EngineInterface,
+  keep: SnapshotKeep,
+  limits: readonly SessionRateLimit[],
+): Promise<SnapshotWindows> {
+  try {
+    return await noteSnapshot(snapshotHost($), keep, limits)
+  } catch (error) {
+    $.ui.log(`handily-board: the usage snapshot was not merged: ${String(error)}`, {
+      to: 'debug',
+    })
+    return keep.windows
+  }
+}
+
+async function readUsage(
+  $: EngineInterface,
+  keep: VitalsKeep,
+  snapshots: SnapshotKeep,
+): Promise<void> {
   try {
     const usage = await $.session.usage()
-    await noteVitals($, keep, (vitals, now) => withUsage(vitals, usage, now))
+    const snapshot = await mergedSnapshot($, snapshots, usage.rateLimits)
+    await noteVitals($, keep, (vitals, now) =>
+      withSnapshot(withUsage(vitals, usage, now), snapshot),
+    )
   } catch (error) {
     $.ui.log(`handily-board: no context or cost on this host: ${String(error)}`, { to: 'debug' })
     await noteVitals($, keep, withoutUsage)
@@ -1995,6 +2053,7 @@ export const register: Register = (on, options) => {
   const storeOptions = { store: options.store, answerWindow: options.answerWindow }
   const vitals: VitalsKeep = { current: EMPTY_VITALS }
   const warnings = newWarnKeep()
+  const snapshots = snapshotKeep()
   const checks: ChecksKeep = { current: EMPTY_CHECKS }
   const request: RequestKeep = { current: NO_REQUEST }
   const breakdown: PartsKeep = { view: UNREAD_PARTS, isStale: false }
@@ -2034,7 +2093,7 @@ export const register: Register = (on, options) => {
     await $.state.set({ plugin: 'handily-board', key: 'ready' }, { root: $.plugin.root })
     const started = await next(e)
     await removeStaleWarnings(warnHost($))
-    await readUsage($, vitals)
+    await readUsage($, vitals, snapshots)
     await warnFromVitals($, warnings, vitals.current)
     await trendOf($, trend)
     return started
@@ -2050,8 +2109,14 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
-    await noteVitals($, vitals, (current, now) => withMeasure(current, e, now))
-    if (hasCarriedLimits(e)) await warnFromVitals($, warnings, vitals.current)
+    const isCarried = hasCarriedLimits(e)
+    const snapshot = isCarried
+      ? await mergedSnapshot($, snapshots, e.rateLimits)
+      : vitals.current.snapshot
+    await noteVitals($, vitals, (current, now) =>
+      withSnapshot(withMeasure(current, e, now), snapshot),
+    )
+    if (isCarried) await warnFromVitals($, warnings, vitals.current)
     const { tokens } = e.context
     if (e.changed.includes('context') && tokens !== undefined) {
       await noteTrend($, trend, (current) => trendMeasured(current, tokens))

@@ -10941,3 +10941,79 @@ $ cat docs/notes.md
 - **A diff that `Code` does not parse** draws as plain code on the desktop, and the engine logs
   it.
 - **A kind that the mod does not know** is plain. The mod never guesses a kind.
+
+## 24. The usage snapshot and the plan on the pace line (handily-l97t2x)
+
+The basicly-pace session owns the usage snapshot format, spec v1 of 2026-11-26. The board writes
+its file in that format and shows the plan of the spec beside the pace of 8.15. The board reads
+nothing of basicly. These mocks are the build.
+
+### 24.0 Conventions
+
+As section 19.0: plain text, one `Colours:` line under each block, theme keys only. The blocks
+show the details of the Session line, with the indent of 4. At 120 columns the details have
+room for 116 columns, and at 40 columns for 36. Each part is one unit of the flow of 8.15c, so a
+part that does not fit starts the next line.
+
+The numbers in the blocks: the 5 hour limit resets in about 2 hours 15 minutes, and the weekly
+limit is at 12.6 percent with about 98 hours to its reset. The 5 hour readings rise over 15 or 16
+minutes. The docked terminal frame takes columns of its own, so a docked body of 41 columns can
+break a line one part earlier than the desktop.
+
+### 24.1 The plan, 120 columns
+
+```text
+    pace 5h full ~1h · 7d no growth · 5h ~129% at reset · 7d ~30% at reset · plan close idle
+    pace 5h full after reset · 7d no growth · 5h ~90% at reset · 7d ~30% at reset · plan hold
+    pace 5h full after reset · 7d no growth · 5h ~80% at reset · 7d ~30% at reset · plan start
+```
+
+Colours: the line dim, as 8.15c.
+
+### 24.2 The plan, 40 columns
+
+```text
+    pace 5h full ~1h · 7d no growth
+    5h ~129% at reset · 7d ~30% at reset
+    plan close idle
+
+    pace 5h full after reset
+    7d no growth · 5h ~90% at reset
+    7d ~30% at reset · plan hold
+```
+
+Colours: as 24.1.
+
+### 24.3 How the numbers are made
+
+- **The projected percent.** `5h ~129% at reset` is the used percent, plus the rate in percent
+  for each hour, times the hours to the reset. The 5 hour rate is the rise over the readings of
+  the last 60 minutes, when 2 readings span 15 minutes or more. Otherwise it is the used percent
+  for each hour since the window started, the reset minus 5 hours, when 30 minutes or more of the
+  window passed. The weekly rate is always that window average, when 24 hours or more of the
+  window passed. Otherwise the rate is 0. The board rounds the percent.
+- **The word.** For each limit: `close idle` when the projection is 100 percent or more, or the
+  used percent is 95 or more; `hold` when the projection is 90 percent or more; else `start`.
+  The line shows the most careful word of the limits: `close idle`, then `hold`, then
+  `start`.
+- **A past reset.** A limit whose reset is past shows no percent and counts as `start`.
+- **The readings.** The plan uses the readings that the board merged into its snapshot file, so
+  it matches what basicly plans from the same file. The plan works also when the board cannot
+  write the file.
+
+### 24.4 Failure modes
+
+- **No limits.** The details read `limits: none reported` and show no pace line and no plan, as
+  in 8.15c.
+- **A limit with no reset time, or a spend limit.** The snapshot has only the 5 hour and the
+  weekly limit, each with a reset time. A limit without one is not in the plan.
+- **The file cannot be written.** The board logs one line in the transcript:
+  `handily-board: the usage snapshot was not written:` and the reason that the engine gives,
+  such as `EACCES: permission denied`. It logs the same reason again only after a write
+  succeeded. The board and the plan stay as they are.
+- **No folder.** A relative `BASICLY_USAGE_SNAPSHOT_DIR` logs
+  `BASICLY_USAGE_SNAPSHOT_DIR is not an absolute path` as the reason and writes nothing. With
+  no `BASICLY_USAGE_SNAPSHOT_DIR`, no absolute `XDG_STATE_HOME` and no absolute `HOME`, the
+  reason is `no absolute XDG_STATE_HOME and no absolute HOME`.
+- **One reading.** The plan needs no 15 minutes of readings. With fewer, the 5 hour rate is the
+  window average, so `pace after 15m of readings` can stand beside a percent at reset.

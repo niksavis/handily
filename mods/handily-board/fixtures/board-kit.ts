@@ -153,7 +153,24 @@ export type World = {
   breakdownCalls: number
   config: ConfigRow[]
   glyphs: unknown[]
+  files: Map<string, string>
+  writes: { path: string; text: string }[]
 }
+
+export const TEST_SNAPSHOT_DIR = '/test-state/usage-snapshots'
+
+export type SnapshotWorld = {
+  env?: Readonly<Partial<Record<string, string>>>
+  platform?: 'macos' | 'windows' | 'wsl' | 'linux'
+  files?: Readonly<Record<string, string>>
+  writeDenial?: string
+}
+
+const SNAPSHOT_VARIABLES: ReadonlySet<string> = new Set([
+  'BASICLY_USAGE_SNAPSHOT_DIR',
+  'XDG_STATE_HOME',
+  'LOCALAPPDATA',
+])
 
 type PaneOpen = { id: string; title: string | undefined; focus: boolean }
 
@@ -178,6 +195,7 @@ export type WorldOptions = {
   planAnswer?: PlanAnswer
   glyphs?: ConfigValue
   surfaces?: readonly RenderSurface[]
+  snapshot?: SnapshotWorld
 }
 
 export type PlanAnswer =
@@ -225,7 +243,10 @@ export function world(on: On, options: WorldOptions = {}): World {
     breakdownCalls: 0,
     config: options.glyphs === undefined ? [] : [glyphsRow(options.glyphs)],
     glyphs: [],
+    files: new Map(Object.entries(options.snapshot?.files ?? {})),
+    writes: [],
   }
+  snapshotWorld(on, state, options.snapshot ?? {})
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.surfaces', () => ({ value: options.surfaces ?? ['terminal'] }))
   on('config.list', () => ({ value: state.config }))
@@ -335,6 +356,32 @@ export function world(on: On, options: WorldOptions = {}): World {
     on('prompt.submit', (_$, e) => ({ text: e.text, context: e.context }))
   }
   return state
+}
+
+function snapshotWorld(on: On, state: World, snapshot: SnapshotWorld): void {
+  const env = snapshot.env ?? { BASICLY_USAGE_SNAPSHOT_DIR: TEST_SNAPSHOT_DIR }
+  const { platform } = snapshot
+  on('env.get', (_$, e, next) =>
+    SNAPSHOT_VARIABLES.has(e.name) || env[e.name] !== undefined ? { value: env[e.name] } : next(e),
+  )
+  if (platform !== undefined) {
+    on('session.info', () => ({ value: { transcriptPath: '', platform } }))
+  }
+  const isSnapshotPath = (path: string) => path.endsWith('/handily-board.json')
+  on('fs.read', (_$, e, next) => {
+    if (!isSnapshotPath(e.path)) return next(e)
+    const text = state.files.get(e.path)
+    return text === undefined
+      ? { deny: `ENOENT: no such file or directory, open '${e.path}'` }
+      : { value: text }
+  })
+  on('fs.write', (_$, e, next) => {
+    if (!isSnapshotPath(e.path)) return next(e)
+    if (snapshot.writeDenial !== undefined) return { deny: snapshot.writeDenial }
+    state.writes.push({ path: e.path, text: e.text })
+    state.files.set(e.path, e.text)
+    return { value: undefined }
+  })
 }
 
 export async function start($: Engine): Promise<void> {

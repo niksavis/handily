@@ -5,6 +5,7 @@ import { type ContextView, contextPartsText, drawContextParts } from './breakdow
 import { drawChecks } from './checks'
 import type { PaneElements, RowLayout } from './pane'
 import { detailPaceTexts } from './pace'
+import { planTexts } from './usage-snapshot'
 import { type Part, PART_LEAD, drawFitLine, drawPartLines, fitLineText } from './parts'
 import { escaped } from './tasks'
 import { tokensText } from './tokens'
@@ -53,8 +54,12 @@ function nearLimitParts(vitals: Vitals): Part[] {
   return NEAR_LIMIT_NOTE.split(WORD_LEAD).map((text) => ({ text }))
 }
 
+export function kindName(kind: string): string {
+  return LIMIT_NAMES[kind] ?? escaped(kind)
+}
+
 export function limitName(limit: SessionRateLimit): string {
-  return LIMIT_NAMES[limit.kind] ?? escaped(limit.kind)
+  return kindName(limit.kind)
 }
 
 export function resetsInMs(limit: SessionRateLimit, now: number): number | undefined {
@@ -86,7 +91,9 @@ function limitsParts(vitals: Vitals, now: number): Part[] {
 }
 
 function paceParts(vitals: Vitals, now: number): Part[] {
-  return detailPaceTexts(vitals.readings, vitals.limits, now, limitName).map((text) => ({ text }))
+  const paces = detailPaceTexts(vitals.readings, vitals.limits, now, limitName)
+  if (paces.length === 0) return []
+  return [...paces, ...planTexts(vitals.snapshot, now, kindName)].map((text) => ({ text }))
 }
 
 function detailGroups(vitals: Vitals, now: number): Group[] {

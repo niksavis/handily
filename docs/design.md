@@ -1512,6 +1512,53 @@ The named constants, all in `hooks/pace.ts`:
 | `WARN_MARK` | the `waitsForYou` role (`◆` in the plain set) | The mark at the start of the toast, drawn from the glyph set |
 | `CLAIM_WAIT_MS` | 200 to 800 | The random wait before the read-back |
 
+#### The usage snapshot and the plan (handily-l97t2x)
+
+The basicly-pace session owns the format, spec v1 FINAL of 2026-11-26 (`docs/design/usage-snapshot.md`
+in basicly). The board writes the format and reads nothing of basicly but its own file. The
+mocks are `docs/mocks.md` section 24. The code is `hooks/usage-snapshot.ts`.
+
+- **The readings.** The board reuses the two readers of the limits: `$.session.usage()` at
+  session start, and each `session.measure` that carries `rateLimits`. Only `five_hour` and
+  `seven_day` with a `percentUsed` from 0 to 100 and a `resetsAt` that parses go into the file.
+  Times are whole epoch seconds of `$.clock`.
+- **The folder.** `BASICLY_USAGE_SNAPSHOT_DIR` when it is set. Else, on Windows by
+  `$.session.info().platform`, `LOCALAPPDATA/basicly/usage-snapshots`. Else
+  `XDG_STATE_HOME/basicly/usage-snapshots` when `XDG_STATE_HOME` is absolute, else
+  `HOME/.local/state/basicly/usage-snapshots`. Each name is read with `$.env.get` by its
+  literal name. The board refuses a relative folder by name and writes nothing, because a
+  relative path resolves against the working directory of each session.
+- **The merge.** The board reads `handily-board.json` back and merges each reading by the spec:
+  it drops a reading whose reset is past; it starts a new window when the stored one is invalid,
+  its reset is past, or the reset moved forward more than 600 s; it drops a reading when the
+  reset moved back more than 600 s, the percent fell, or the time is before the newest stored
+  reading; else it appends, and a reading less than 60 s after the one before the newest replaces
+  the newest. At most 360 readings stay. An appended reading takes the new `resets_at`. A window
+  absent from the input keeps its stored object. A file that does not parse, or of another
+  format, version or writer, counts as empty. No change, no write.
+- **The write.** In place with `$.fs.write`: no rename and no child process. One session
+  merges one reading at a time. Known limit: two sessions that write at the same moment can
+  lose the readings of one, and basicly can read a half-written file, which it skips.
+- **The plan.** The board computes the plan of the spec from the merged windows, so the words
+  match what basicly plans from the same file, also when the write fails. The details add, after
+  the pace, the projected percent of each window at its reset, rounded, and `plan start`,
+  `plan hold` or `plan close idle`. A window whose reset is past shows no percent.
+- **Failures.** A failed write or a refused folder logs one transcript line,
+  `handily-board: the usage snapshot was not written:` and the reason. The same reason logs
+  again only after a write succeeded. A failed read counts as the windows in memory. The board
+  and the measure hook go on.
+
+| Name | Value | Effect |
+| --- | --- | --- |
+| `READINGS_MOST` | 360 | The readings kept for each window |
+| `RESET_SHIFT_S` | 600 | A reset that moves by more starts a new window, or drops the reading |
+| `READING_STEP_S` | 60 | A reading closer than this to the one before the newest replaces the newest |
+| `RECENT_S` | 3600 | The 5 hour rate reads the readings of this last hour |
+| `RECENT_SPAN_S` | 900 | The recent readings must span this time |
+| `HOLD_PERCENT` | 90 | A projection from here is `hold` |
+| `CLOSE_PERCENT` | 100 | A projection from here is `close idle` |
+| `CLOSE_USED_PERCENT` | 95 | A used percent from here is `close idle` |
+
 #### The session store reader (handily-s3yqhr)
 
 Owner go of 2026-11-19, relayed by the orchestrator (dev-j6oqo). The this machine tab reads the

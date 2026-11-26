@@ -87,7 +87,7 @@ Replies, from the tests:
       trend after 2 turns
       no breakdown on this host
       limits 5h 31% · 7d 13% · resets 5h in 2h · 7d in 4d
-      pace after 15m of readings
+      pace after 15m of readings · 5h ~53% at reset · 7d ~30% at reset · plan start
       Context 124k of 200k tokens. Limits reset: 5h in 2 hours, 7d in 4 days.
       Checks 2: 1 allowed, 1 asked (the classifier or you), 0 denied.
       file 1 · shell 1 · other 0
@@ -663,6 +663,21 @@ Session  ▶ working · ctx ▰▰▰▰▰▰▱▱▱▱ 62% · 124k/200k · $
   `5h ▰▰▰▱▱ 62% full ~1h resets 2h`. Fewer readings, flat or falling use, or a last reading over
   30 minutes old show no projection. The details show a `pace` line, such as
   `pace 5h full ~1h · 7d no growth` or `pace after 15m of readings`.
+- The `pace` line also shows the plan: the projected percent of each limit at its reset and
+  one word, `start`, `hold` or `close idle`, such as
+  `5h ~129% at reset · 7d ~30% at reset · plan close idle`. The board computes them by the plan
+  rules of the usage snapshot format v1, which the basicly-pace session owns. `close idle` means
+  a projection of 100 percent or more, or 95 percent used. `hold` means a projection of 90
+  percent or more. The line shows the most careful word of the limits.
+- Each new reading of the 5 hour or the weekly limit goes into the usage snapshot file
+  `handily-board.json`, in the format `basicly.usage-snapshot` version 1. The board reads the
+  file back, merges the reading by the rules of the format, and writes the file in place with
+  `$.fs.write`, with no rename and no child process. A reading that changes nothing writes
+  nothing. The folder is `BASICLY_USAGE_SNAPSHOT_DIR`, else `XDG_STATE_HOME/basicly/usage-snapshots`
+  when `XDG_STATE_HOME` is an absolute path, else `~/.local/state/basicly/usage-snapshots`. On
+  Windows it is `LOCALAPPDATA/basicly/usage-snapshots`. The board reads no other file of
+  basicly and needs no basicly. A write that fails logs one line in the transcript, and the
+  board draws on.
 - At 80 and 95 percent of a limit, one session of this machine shows a toast, such as
   `◆ 5h limit at 80%` and `full ~50m at this pace · resets in 2h`, once for each level in each
   cycle of the limit. The sessions share the store key `limit-warned:<kind>`. Known limit: two
