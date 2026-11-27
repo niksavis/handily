@@ -133,6 +133,7 @@ export const fakeWorkitems: Plugin = {
 export type World = {
   tools: string[]
   descriptions: Map<string, string>
+  schemas: Map<string, Record<string, unknown>>
   commands: string[]
   commandDescriptions: string[]
   panes: Set<string>
@@ -223,6 +224,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   const state: World = {
     tools: [],
     descriptions: new Map(),
+    schemas: new Map(),
     commands: [],
     commandDescriptions: [],
     panes: new Set(),
@@ -286,6 +288,7 @@ export function world(on: On, options: WorldOptions = {}): World {
   on('tool.register', (_$, e) => {
     state.tools.push(e.name)
     state.descriptions.set(e.name, e.description)
+    state.schemas.set(e.name, e.inputSchema)
     return { value: { tool: `mcp__handily-board__${e.name}` } }
   })
   on('command.register', (_$, e) => {

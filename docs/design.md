@@ -1040,6 +1040,19 @@ Defer to quiet-items:
 - `/board edit` gives a task a new title (handily-9uj3n.4). It uses `titleRefusal`, the title
   rule of `addTask`, so an add and an edit refuse the same titles. The task keeps its author: a
   task of Claude stays quoted as data in the list, also after the person gives it a new title.
+- `task_update` takes `id`, and `status`, `title` or both (handily-kwl9m1). Before, it took
+  only a status, and an agent that sent a title got the refusal of Claude Code that the tool does
+  not declare `title`. The new title uses `titleRefusal` and `setTitle`, as `/board edit` does.
+  The task keeps its id, its status and its place. A call with neither field, or with `title` and
+  the status `removed`, is refused with the correct form. A rename draws a row of the kind
+  `renamed`.
+- Each task tool description ends with `It takes:` and the fields of its input schema in order,
+  with `(required)` after a required field, or `It takes no fields.` (handily-kwl9m1).
+  `fieldsSentence` builds the sentence from the schema of each of the six task tools, so the
+  description cannot name a field that the schema does not declare. `finding_add` is not a task
+  tool and has no sentence. The six descriptions grew from 3166 to 3553 characters, measured from
+  the registered descriptions in the test kit: 288 for the sentences and 99 for the new
+  `task_update` text. That is about 97 tokens, assumed at 4 characters for each token.
 - Every task row has `[ rm ]`, and `/board mv` places a task before another task or at an end
   of the list (handily-9uj3n.3). `/board mv` and `task_move` share `moveTask`, which now also
   takes the end of the list. Claude Code keeps the focus ring at the same index when a pane
@@ -1212,6 +1225,12 @@ Tasks for you (handily-9uj3n.8):
   (handily-fybumg, mocks 20). `task_update` refuses every status on a task for the person, and
   the status `removed` names `task_close` with `not_needed`. `task_move` refuses a task for
   the person.
+- A new title for a task for the person is refused by name (handily-kwl9m1, option A): close it
+  with `task_close` how `not_needed` and assign the new text with `task_assign`. The person then
+  sees the old task closed and the new one. A tool that changes the text of an open task under
+  the eyes of the person (option B) would need a change mark and a note, and a seventh tool.
+  `task_add` and `task_move` also refuse a task for the person as `before`, because its place is
+  the order of the asks.
 - `task_close` takes `how`: `claude_did` (only for `do`), `person_did` with the words of
   the person in `said`, or `not_needed`. Claude never closes an answer or decide task by its
   own choice. The result keeps `by`, `how`, `note` and `said`, and the row says who closed
