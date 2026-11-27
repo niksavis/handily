@@ -6,6 +6,17 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.36.0 - 2026-11-27
+
+The check strip draws a denied check as a cross.
+
+### Changed
+
+- **handily-board: the check strip draws a denied check as `╳`.** Before, a denied check was
+  `■`, a filled block like the allowed `▮`, so the two differed only in width. The cross is red
+  and differs in shape, also in the daltonized themes. The counts row is unchanged
+  (handily-d3nkj8).
+
 ## handily-board 0.35.2 - 2026-11-27
 
 The more agents and all open buttons keep the keyboard focus.
