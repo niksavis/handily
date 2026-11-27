@@ -118,8 +118,8 @@ modes = ["full"]
 inputs = ["mods/**", "probes/**", "scripts/**"]
 
 [[verify.checks]]
-name = "mods-test-staged"
-command = ["node", "scripts/mods.mjs", "test", "--staged"]
+name = "mods-test-changed"
+command = ["node", "scripts/mods.mjs", "test", "--changed"]
 modes = ["fast"]
 inputs = ["mods/**", "probes/**", "scripts/**"]
 

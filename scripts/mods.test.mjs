@@ -18,7 +18,7 @@ import { delimiter, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, test } from 'node:test'
 import { environmentWithoutGit } from './git-env.mjs'
-import { stagedTests } from './staged.mjs'
+import { changedTests } from './staged.mjs'
 
 const repoRoot = join(import.meta.dirname, '..')
 
@@ -1108,7 +1108,7 @@ function selectStaged(paths) {
     beta: ['beta.test.ts'],
     gamma: ['gamma.test.ts'],
   }
-  const { filesByMod, scriptTests } = stagedTests({
+  const { filesByMod, scriptTests } = changedTests({
     root: tree,
     mods,
     paths,
@@ -1120,132 +1120,212 @@ function selectStaged(paths) {
   }
 }
 
-test('stagedTests maps a staged file of one mod to every test file of that mod and no other test', () => {
+test('changedTests maps a staged file of one mod to every test file of that mod and no other test', () => {
   assert.deepEqual(selectStaged(['mods/alpha/hooks/register.ts']), {
     mods: { alpha: ['alpha.test.ts', 'hooks/inner.test.ts'] },
     scriptTests: [],
   })
 })
 
-test('stagedTests maps a staged shared module under scripts to the scripts tests and the mods that import it', () => {
+test('changedTests maps a staged shared module under scripts to the scripts tests and the mods that import it', () => {
   assert.deepEqual(selectStaged(['scripts/shared.mjs']), {
     mods: { beta: ['beta.test.ts'] },
     scriptTests: ['scripts/importer.test.mjs'],
   })
 })
 
-test('stagedTests maps a staged script to the scripts test that names its file and to the staged scripts test itself', () => {
+test('changedTests maps a staged script to the scripts test that names its file and to the staged scripts test itself', () => {
   assert.deepEqual(selectStaged(['scripts/tool.mjs', 'scripts/alone.test.mjs']), {
     mods: {},
     scriptTests: ['scripts/alone.test.mjs', 'scripts/tool.test.mjs'],
   })
 })
 
-test('stagedTests maps a docs-only commit to no test', () => {
+test('changedTests maps a docs-only commit to no test', () => {
   assert.deepEqual(
     selectStaged(['mods/alpha/README.md', 'changelog.d/handily-x1.added.md', 'docs/design.md']),
     { mods: {}, scriptTests: [] },
   )
 })
 
-const stagedScriptTest =
-  "import { test } from 'node:test'\ntest('the staged scripts test runs', () => {})\n"
+const changedScriptTest =
+  "import { test } from 'node:test'\ntest('the changed scripts test runs', () => {})\n"
+const zeroCommit = '0'.repeat(40)
 
-function makeStagedRepo() {
+function makeChangedRepo() {
   const repo = makeShardedRepo({ withGit: true })
-  writeFileSync(join(repo.root, 'scripts', 'staged-only.test.mjs'), stagedScriptTest)
+  writeFileSync(join(repo.root, 'scripts', 'changed-only.test.mjs'), changedScriptTest)
   return repo
 }
 
-function runStagedGate(repo, args = []) {
+function writeFiles(root, files) {
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(root, path, '..'), { recursive: true })
+    writeFileSync(join(root, path), text)
+  }
+}
+
+function makePushedRepo(changes) {
+  const repo = makeChangedRepo()
+  pinGit(repo.root, 'add', 'mods', 'scripts')
+  pinGit(repo.root, 'commit', '--quiet', '-m', 'base')
+  const base = pinGit(repo.root, 'rev-parse', 'HEAD')
+  pinGit(repo.root, 'update-ref', 'refs/remotes/origin/main', base)
+  writeFiles(repo.root, changes)
+  pinGit(repo.root, 'add', ...Object.keys(changes))
+  pinGit(repo.root, 'commit', '--quiet', '-m', 'lane work')
+  return { ...repo, base, head: pinGit(repo.root, 'rev-parse', 'HEAD') }
+}
+
+function runChangedGate(repo, { args = [], pushRefs } = {}) {
   const bin = makeTimedClaude([quickOutput])
   const env = { ...environmentWithoutGit, PATH: `${bin}${delimiter}${process.env.PATH}` }
   delete env.GITHUB_ACTIONS
   delete env.NODE_TEST_CONTEXT
+  delete env.BASICLY_PUSH_REFS
+  if (pushRefs !== undefined) env.BASICLY_PUSH_REFS = pushRefs
   const result = spawnSync(
     process.execPath,
-    [join(repo.root, 'scripts', 'mods.mjs'), 'test', '--staged', ...args],
+    [join(repo.root, 'scripts', 'mods.mjs'), 'test', '--changed', ...args],
     { cwd: repo.root, encoding: 'utf8', env },
   )
   return { result, calls: readCalls(bin) }
 }
 
-test('test --staged runs only the test files of the mod whose file is staged and no scripts test', () => {
-  const repo = makeStagedRepo()
+function selectionLine(files, mods, scripts, paths, kind) {
+  return `test: --changed runs ${files} test file(s) of ${mods} mod(s) and ${scripts} scripts test file(s) for ${paths} ${kind} path(s); npm test runs every test file`
+}
+
+test('test --changed runs only the test files of the mod whose file is staged and no scripts test', () => {
+  const repo = makeChangedRepo()
   writeFileSync(join(repo.root, 'mods', 'second', 'helper.ts'), 'export const helper = 1\n')
   git(repo.root, 'add', 'mods/second/helper.ts')
-  const { result, calls } = runStagedGate(repo)
+  const { result, calls } = runChangedGate(repo)
   assert.equal(result.status, 0, result.stdout + result.stderr)
   assert.deepEqual(calls.flatMap(callKeys), ['second/second.test.ts'])
-  assert.match(
-    result.stdout,
-    /^test: --staged runs 1 test file\(s\) of 1 mod\(s\) and 0 scripts test file\(s\) for 1 staged path\(s\); npm test runs every test file$/m,
-  )
-  assert.doesNotMatch(result.stdout, /passes|the staged scripts test runs/)
+  assert.ok(result.stdout.split('\n').includes(selectionLine(1, 1, 0, 1, 'staged')), result.stdout)
+  assert.doesNotMatch(result.stdout, /passes|the changed scripts test runs/)
 })
 
-test('test --staged runs a staged scripts test and no mod test', () => {
-  const repo = makeStagedRepo()
-  git(repo.root, 'add', 'scripts/staged-only.test.mjs')
-  const { result, calls } = runStagedGate(repo)
+test('test --changed runs a staged scripts test and no mod test', () => {
+  const repo = makeChangedRepo()
+  git(repo.root, 'add', 'scripts/changed-only.test.mjs')
+  const { result, calls } = runChangedGate(repo)
   assert.equal(result.status, 0, result.stdout + result.stderr)
   assert.deepEqual(calls, [])
-  assert.match(result.stdout, /the staged scripts test runs/)
+  assert.match(result.stdout, /the changed scripts test runs/)
   assert.doesNotMatch(result.stdout, /passes/)
 })
 
-test('test --staged runs no test when only documentation files are staged', () => {
-  const repo = makeStagedRepo()
-  writeFileSync(join(repo.root, 'mods', 'timed', 'README.md'), '# timed\n')
-  mkdirSync(join(repo.root, 'changelog.d'))
-  writeFileSync(join(repo.root, 'changelog.d', 'handily-x1.added.md'), '- x\n')
+test('test --changed runs no test when only documentation files are staged', () => {
+  const repo = makeChangedRepo()
+  writeFiles(repo.root, {
+    'mods/timed/README.md': '# timed\n',
+    'changelog.d/handily-x1.added.md': '- x\n',
+  })
   git(repo.root, 'add', 'mods/timed/README.md', 'changelog.d/handily-x1.added.md')
-  const { result, calls } = runStagedGate(repo)
+  const { result, calls } = runChangedGate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(calls, [])
+  assert.ok(result.stdout.split('\n').includes(selectionLine(0, 0, 0, 2, 'staged')), result.stdout)
+  assert.doesNotMatch(result.stdout, /passes|the changed scripts test runs/)
+})
+
+test('test --changed runs no test when nothing is staged and says so', () => {
+  const repo = makeChangedRepo()
+  const { result, calls } = runChangedGate(repo)
   assert.equal(result.status, 0, result.stdout + result.stderr)
   assert.deepEqual(calls, [])
   assert.match(
     result.stdout,
-    /^test: --staged runs 0 test file\(s\) of 0 mod\(s\) and 0 scripts test file\(s\) for 2 staged path\(s\); npm test runs every test file$/m,
+    /^test: --changed finds no staged path, so it runs no test; npm test runs every test file$/m,
   )
-  assert.doesNotMatch(result.stdout, /passes|the staged scripts test runs/)
+  assert.doesNotMatch(result.stdout, /passes|the changed scripts test runs/)
 })
 
-test('test --staged runs every test file when nothing is staged and says so', () => {
-  const repo = makeStagedRepo()
-  const { result, calls } = runStagedGate(repo)
-  assert.equal(result.status, 0, result.stdout + result.stderr)
-  assert.deepEqual(calls.flatMap(callKeys).toSorted(), [
-    'second/second.test.ts',
-    'timed/hooks/inner.test.ts',
-    'timed/other.test.ts',
-    'timed/timed.test.ts',
-  ])
-  assert.match(result.stdout, /^test: --staged finds no staged path, so it runs every test file$/m)
-  assert.match(result.stdout, /passes/)
-})
-
-test('test --staged fails by name when git cannot read the staged paths', () => {
+test('test --changed fails by name when git cannot read the staged paths', () => {
   const repo = makeShardedRepo()
-  const { result, calls } = runStagedGate(repo)
+  const { result, calls } = runChangedGate(repo)
   assert.equal(result.status, 1, result.stdout + result.stderr)
   assert.deepEqual(calls, [])
   assert.match(
     result.stderr,
-    /^FAIL test: --staged cannot read the staged paths with git diff --cached --name-only \(.+\); run it in a git work tree, or run node scripts\/mods\.mjs test$/m,
+    /^FAIL test: --changed cannot read the staged paths with git diff --cached --name-only --no-renames \(.+\); run it in a git work tree with origin\/main fetched, or run node scripts\/mods\.mjs test$/m,
   )
 })
 
-test('test refuses --staged together with --file or --shard and names the commands', () => {
-  const repo = makeStagedRepo()
+test('test --changed in a pre-push hook runs only the test files of the mod changed against origin/main and ignores the index', () => {
+  const repo = makePushedRepo({ 'mods/second/helper.ts': 'export const helper = 1\n' })
+  writeFileSync(join(repo.root, 'mods', 'timed', 'unpushed.ts'), 'export const unpushed = 1\n')
+  git(repo.root, 'add', 'mods/timed/unpushed.ts')
+  for (const pushRefs of [
+    `refs/heads/lane ${repo.head} refs/heads/lane ${zeroCommit}\n`,
+    `refs/heads/lane ${repo.head} refs/heads/lane ${repo.base}\n`,
+    '',
+  ]) {
+    const { result, calls } = runChangedGate(repo, { pushRefs })
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.deepEqual(calls.flatMap(callKeys), ['second/second.test.ts'], pushRefs)
+    assert.ok(
+      result.stdout.split('\n').includes(selectionLine(1, 1, 0, 1, 'pushed')),
+      result.stdout,
+    )
+    assert.doesNotMatch(result.stdout, /passes|the changed scripts test runs/)
+  }
+})
+
+test('test --changed in a pre-push hook runs no test for a push of documentation files only', () => {
+  const repo = makePushedRepo({
+    'mods/timed/README.md': '# timed\n',
+    'changelog.d/handily-x1.added.md': '- x\n',
+  })
+  const { result, calls } = runChangedGate(repo, {
+    pushRefs: `refs/heads/lane ${repo.head} refs/heads/lane ${zeroCommit}\n`,
+  })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(calls, [])
+  assert.ok(result.stdout.split('\n').includes(selectionLine(0, 0, 0, 2, 'pushed')), result.stdout)
+  assert.doesNotMatch(result.stdout, /passes|the changed scripts test runs/)
+})
+
+test('test --changed in a pre-push hook runs no test for a push that only deletes a ref', () => {
+  const repo = makePushedRepo({ 'mods/second/helper.ts': 'export const helper = 1\n' })
+  const { result, calls } = runChangedGate(repo, {
+    pushRefs: `(delete) ${zeroCommit} refs/heads/old ${repo.base}\n`,
+  })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(calls, [])
+  assert.match(
+    result.stdout,
+    /^test: --changed finds no pushed path, so it runs no test; npm test runs every test file$/m,
+  )
+})
+
+test('test --changed in a pre-push hook refuses a pushed ref line that names no commit and runs no test', () => {
+  const repo = makePushedRepo({ 'mods/second/helper.ts': 'export const helper = 1\n' })
+  const line = `refs/heads/lane --output=x refs/heads/lane ${zeroCommit}`
+  const { result, calls } = runChangedGate(repo, { pushRefs: `${line}\n` })
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.deepEqual(calls, [])
+  assert.ok(
+    result.stderr.includes(
+      `FAIL test: --changed reads the pushed refs of BASICLY_PUSH_REFS, and the line "${line}" is not "<local ref> <local commit> <remote ref> <remote commit>"; push again, or run node scripts/mods.mjs test`,
+    ),
+    result.stderr,
+  )
+})
+
+test('test refuses --changed together with --file or --shard and names the commands', () => {
+  const repo = makeChangedRepo()
   for (const args of [
     ['--file', 'mods/timed/other.test.ts'],
     ['--shard', '1/3'],
   ]) {
-    const { result, calls } = runStagedGate(repo, args)
+    const { result, calls } = runChangedGate(repo, { args })
     assert.equal(result.status, 2, result.stdout + result.stderr)
     assert.ok(
       result.stderr.includes(
-        'test: --staged goes with no --file or --shard; run node scripts/mods.mjs test --staged alone',
+        'test: --changed goes with no --file or --shard; run node scripts/mods.mjs test --changed alone',
       ),
       result.stderr,
     )

@@ -16,7 +16,7 @@ import { cpus, loadavg, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createScratchFolder, removeScratchFolder } from './scratch.mjs'
-import { stagedTests } from './staged.mjs'
+import { changedTests } from './staged.mjs'
 
 const root = join(import.meta.dirname, '..')
 const gatedFolders = [
@@ -1409,29 +1409,76 @@ function runScriptTests(files = ['scripts/*.test.mjs']) {
 }
 
 const stagedPathsCommand = ['diff', '--cached', '--name-only', '--no-renames', '-z']
+const pushedPathsCommand = ['diff', '--name-only', '--no-renames', '-z']
+const pushBase = 'origin/main'
+const commitIdPattern = /^[0-9a-f]{4,64}$/i
+const zeroIdPattern = /^0+$/
 
-function readStagedPaths() {
-  const result = spawnSync('git', stagedPathsCommand, { cwd: root, encoding: 'utf8' })
+function gitPaths(args, kind) {
+  const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
   if (result.error !== undefined || result.status !== 0) {
     const detail =
       result.error?.message ??
       (result.stderr.trim().split('\n')[0] || `exit ${String(result.status)}`)
     fail(
-      `test: --staged cannot read the staged paths with git diff --cached --name-only (${detail}); run it in a git work tree, or run node scripts/mods.mjs test`,
+      `test: --changed cannot read the ${kind} paths with git ${args.filter((arg) => arg !== '-z').join(' ')} (${detail}); run it in a git work tree with ${pushBase} fetched, or run node scripts/mods.mjs test`,
     )
     return undefined
   }
   return result.stdout.split('\0').filter(Boolean)
 }
 
-function stagedSelection(mods) {
-  const paths = readStagedPaths()
+function pushedRanges(refs) {
+  const lines = refs
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return [[`${pushBase}...HEAD`]]
+  const ranges = []
+  for (const line of lines) {
+    const [, local, , remote, ...rest] = line.split(/\s+/)
+    if (
+      rest.length > 0 ||
+      !commitIdPattern.test(local ?? '') ||
+      !commitIdPattern.test(remote ?? '')
+    ) {
+      fail(
+        `test: --changed reads the pushed refs of BASICLY_PUSH_REFS, and the line "${line}" is not "<local ref> <local commit> <remote ref> <remote commit>"; push again, or run node scripts/mods.mjs test`,
+      )
+      return undefined
+    }
+    if (zeroIdPattern.test(local)) continue
+    ranges.push(zeroIdPattern.test(remote) ? [`${pushBase}...${local}`] : [remote, local])
+  }
+  return ranges
+}
+
+function readChangedPaths() {
+  const refs = process.env.BASICLY_PUSH_REFS
+  if (refs === undefined) {
+    return { kind: 'staged', paths: gitPaths(stagedPathsCommand, 'staged') }
+  }
+  const ranges = pushedRanges(refs)
+  if (ranges === undefined) return { kind: 'pushed', paths: undefined }
+  const paths = new Set()
+  for (const range of ranges) {
+    const listed = gitPaths([...pushedPathsCommand, ...range], 'pushed')
+    if (listed === undefined) return { kind: 'pushed', paths: undefined }
+    for (const path of listed) paths.add(path)
+  }
+  return { kind: 'pushed', paths: [...paths].sort() }
+}
+
+function changedSelection(mods) {
+  const { kind, paths } = readChangedPaths()
   if (paths === undefined) return undefined
   if (paths.length === 0) {
-    console.log('test: --staged finds no staged path, so it runs every test file')
-    return { filesByMod: undefined, scriptTests: undefined }
+    console.log(
+      `test: --changed finds no ${kind} path, so it runs no test; npm test runs every test file`,
+    )
+    return { filesByMod: new Map(), scriptTests: [] }
   }
-  const selection = stagedTests({
+  const selection = changedTests({
     root,
     mods,
     paths,
@@ -1440,15 +1487,15 @@ function stagedSelection(mods) {
   })
   const total = [...selection.filesByMod.values()].reduce((sum, files) => sum + files.size, 0)
   console.log(
-    `test: --staged runs ${total} test file(s) of ${selection.filesByMod.size} mod(s) and ${selection.scriptTests.length} scripts test file(s) for ${paths.length} staged path(s); npm test runs every test file`,
+    `test: --changed runs ${total} test file(s) of ${selection.filesByMod.size} mod(s) and ${selection.scriptTests.length} scripts test file(s) for ${paths.length} ${kind} path(s); npm test runs every test file`,
   )
   return selection
 }
 
 function test(mods, { values = {} } = {}) {
-  if (values.staged === true && (values.file !== undefined || values.shard !== undefined)) {
+  if (values.changed === true && (values.file !== undefined || values.shard !== undefined)) {
     console.error(
-      'test: --staged goes with no --file or --shard; run node scripts/mods.mjs test --staged alone',
+      'test: --changed goes with no --file or --shard; run node scripts/mods.mjs test --changed alone',
     )
     process.exit(2)
   }
@@ -1458,12 +1505,12 @@ function test(mods, { values = {} } = {}) {
     )
     process.exit(2)
   }
-  const staged = values.staged === true ? stagedSelection(mods) : undefined
-  if (values.staged === true && staged === undefined) return
+  const changed = values.changed === true ? changedSelection(mods) : undefined
+  if (values.changed === true && changed === undefined) return
   const shard = values.shard === undefined ? undefined : readShard(values.shard)
   const named = values.file === undefined ? undefined : namedFiles(mods, values.file)
   const filesByMod =
-    staged?.filesByMod ?? named ?? (shard === undefined ? undefined : shardFiles(mods, shard))
+    changed?.filesByMod ?? named ?? (shard === undefined ? undefined : shardFiles(mods, shard))
   if (named !== undefined) {
     const total = [...named.values()].reduce((sum, files) => sum + files.size, 0)
     console.log(
@@ -1495,8 +1542,8 @@ function test(mods, { values = {} } = {}) {
   const ranAgain = timesByMod.flatMap(({ mod, times }) => checkTestTimes(mod, times, slowness))
   if (!isCiRunner) countRunsAlone(ranAgain)
   if (filesByMod === undefined) runScriptTests()
-  else if (staged?.scriptTests !== undefined && staged.scriptTests.length > 0) {
-    runScriptTests(staged.scriptTests)
+  else if (changed !== undefined && changed.scriptTests.length > 0) {
+    runScriptTests(changed.scriptTests)
   }
 }
 
@@ -1522,10 +1569,10 @@ const taskArguments = {
   test: {
     shard: { type: 'string' },
     file: { type: 'string', multiple: true },
-    staged: { type: 'boolean' },
+    changed: { type: 'boolean' },
   },
 }
-const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>... | --staged], or ${testTimesCommand}`
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>... | --changed], or ${testTimesCommand}`
 
 function readTaskArguments(name, args) {
   try {

@@ -79,7 +79,7 @@ export function isDocument(path) {
   return documentPattern.test(path)
 }
 
-export function stagedTests({ root, mods, paths, testFilesOf, isSkipped = () => false }) {
+export function changedTests({ root, mods, paths, testFilesOf, isSkipped = () => false }) {
   const changed = paths.filter((path) => !isDocument(path))
   const filesByMod = new Map()
   for (const mod of mods) {

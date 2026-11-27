@@ -42,10 +42,11 @@ Run the gates before you push:
 npm run check
 ```
 
-`npm run check` runs validate, type check, lint and test. The pre-commit hook runs only the tests
-of the staged files, as the section on staged tests below describes. CI runs every gate in the
-table, the checks of `basicly verify --mode full`, with the mod tests split into parallel jobs by
-`node scripts/mods.mjs test --shard <n>/<count>` and the scripts tests in `npm run test-scripts`.
+`npm run check` runs validate, type check, lint and test. The pre-commit and pre-push hooks
+run only the tests of the changed files, as the section on changed tests below describes. CI
+runs every gate in the table, the checks of `basicly verify --mode full`, with the mod tests
+split into parallel jobs by `node scripts/mods.mjs test --shard <n>/<count>` and the scripts
+tests in `npm run test-scripts`.
 The shards balance by the time of each test file in `scripts/test-times.json`. A file with no
 time there counts by its bytes. To update the times, save the log of each mod test job with
 `gh run view --job <id> --log > <file>`, then run `node scripts/mods.mjs test-times <file>...`.
@@ -65,27 +66,37 @@ rest of its folder, through the same copy that the gate uses for a test that run
 Give `--file` more than once to run more files. It refuses a path that is not a test file of a
 mod, and it does not go together with `--shard`. No gate passes `--file`.
 
-### Staged tests in the pre-commit hook
+### Changed tests in the pre-commit and pre-push hooks
 
-The pre-commit hook and a local push run the `fast` checks of `basicly.toml`. Their test check,
-`mods-test-staged`, runs `node scripts/mods.mjs test --staged`. It reads the staged paths with
-`git diff --cached --name-only` and runs only these tests:
+The pre-commit hook and the pre-push hook run the `fast` checks of `basicly.toml`. Their test
+check, `mods-test-changed`, runs `node scripts/mods.mjs test --changed`. The command reads the
+changed paths from one of two sources:
 
-- A staged file in the folder of a mod runs every test file of that mod.
-- A staged file outside the folder of a mod that a file of the mod imports runs every test file
+| Hook | Changed paths |
+| --- | --- |
+| pre-commit | The staged paths, from `git diff --cached --name-only` |
+| pre-push | The pushed paths of each pushed ref, from `git diff --name-only` against the remote commit, or against `origin/main` for a new branch |
+
+The pre-push hook gives the pushed refs in the `BASICLY_PUSH_REFS` variable. When that variable is
+set but empty, the command reads `git diff --name-only origin/main...HEAD`. Both hooks use the
+same map from a changed path to the tests in `scripts/staged.mjs`. It runs only these tests:
+
+- A changed file in the folder of a mod runs every test file of that mod.
+- A changed file outside the folder of a mod that a file of the mod imports runs every test file
   of that mod.
-- A staged scripts test runs.
-- A scripts test runs when it imports a staged file, directly or through other imports.
-- A scripts test runs when it, or a script that it imports, names the file name of a staged file
-  in a string. For example, `scripts/mods.test.mjs` starts `scripts/mods.mjs`, and
-  `scripts/width.test.mjs` reads `hooks/width.ts` of each mod. A name match also selects a test
-  that only writes a file of that name in a fixture, such as `register.ts`.
-- A staged Markdown file runs no test. So a commit of documentation only runs no mod test.
+- A changed scripts test runs.
+- A scripts test runs when it imports a changed file, directly or through other imports.
+- The file-name rule: a scripts test runs when it, or a script that it imports, names the file
+  name of a changed file in a string. For example, `scripts/mods.test.mjs` starts
+  `scripts/mods.mjs`, and `scripts/width.test.mjs` reads `hooks/width.ts` of each mod. The rule
+  also selects a test that only writes a file of that name in a fixture, such as `register.ts`.
+- A changed Markdown file runs no test. So a commit or a push of documentation only runs no mod
+  test.
 
-When nothing is staged, `--staged` runs every test file and says so. `--staged` does not go
-together with `--file` or `--shard`. The full suite stays in CI. The `full` check `mods-test` runs
-every test file, and the `basicly-gates` workflow runs it in shards on every pull request and
-every push to `main`.
+When no path changed, `--changed` runs no test and says so. `--changed` does not go together with
+`--file` or `--shard`. The full suite stays in CI. The `full` check `mods-test` runs every test
+file, and the `basicly-gates` workflow runs it in shards on every pull request and every push to
+`main`.
 
 ### Test time limit
 
