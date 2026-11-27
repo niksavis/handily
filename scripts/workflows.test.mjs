@@ -121,8 +121,26 @@ describe('CI runs every configured check, and the sharded mod tests cover every 
   test('basicly-gates runs the sharded mod tests on the pinned and the newest Claude Code', () => {
     const text = read(gatesPath)
     assert.match(text, /^\s+engine: \[pinned, newest\]$/m)
-    assert.match(text, /^\s+package: "@anthropic-ai\/claude-code@\d+\.\d+\.\d+"$/m)
-    assert.match(text, /^\s+package: "@anthropic-ai\/claude-code@latest"$/m)
+    assert.match(
+      text,
+      /^\s+CLAUDE_CODE_PACKAGE: \$\{\{ matrix\.engine == 'newest' && '@anthropic-ai\/claude-code@latest' \|\| '@anthropic-ai\/claude-code@\d+\.\d+\.\d+' \}\}$/m,
+    )
+    assert.doesNotMatch(
+      text.slice(text.indexOf('  mod-tests:'), text.indexOf('  mods-newest:')),
+      /^\s+include:$/m,
+    )
+  })
+
+  test('a pull request or a push runs only the pinned shards, and the schedule and a manual run run all of them', () => {
+    const text = read(gatesPath)
+    const job = text.slice(text.indexOf('  mod-tests:'), text.indexOf('  mods-newest:'))
+    assert.match(
+      job,
+      /^\s+exclude:\n\s+- engine: \$\{\{ \(github\.event_name == 'pull_request' \|\| github\.event_name == 'push'\) && 'newest' \|\| 'none' \}\}$/m,
+    )
+    assert.doesNotMatch(job, /^\s+if: /m)
+    assert.match(text, /^ {2}schedule:$/m)
+    assert.match(text, /^ {2}workflow_dispatch:$/m)
   })
 
   test('a shard list that leaves out a shard is named', () => {

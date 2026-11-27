@@ -98,20 +98,17 @@ jobs:
         run: node scripts/mods.mjs test-scripts
 
   mod-tests:
-    name: mod tests ${{ matrix.shard }} of ${{ matrix.shards }} on ${{ matrix.engine }} Claude Code
+    name: mod tests ${{ matrix.shard }} of 6 on ${{ matrix.engine }} Claude Code
     runs-on: ubuntu-latest
+    env:
+      CLAUDE_CODE_PACKAGE: ${{ matrix.engine == 'newest' && '@anthropic-ai/claude-code@latest' || '@anthropic-ai/claude-code@2.1.329' }}
     strategy:
       fail-fast: false
       matrix:
         engine: [pinned, newest]
         shard: [1, 2, 3, 4, 5, 6]
-        include:
-          - engine: pinned
-            package: "@anthropic-ai/claude-code@2.1.329"
-            shards: 6
-          - engine: newest
-            package: "@anthropic-ai/claude-code@latest"
-            shards: 6
+        exclude:
+          - engine: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'newest' || 'none' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -122,18 +119,14 @@ jobs:
           node-version: "24"
           cache: npm
       - name: Install dev dependencies
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         run: npm ci --no-fund --no-audit
       - name: Install the Claude Code CLI
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
-        run: npm install -g "${{ matrix.package }}"
+        run: npm install -g "$CLAUDE_CODE_PACKAGE"
       - name: Print the resolved Claude Code version
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         shell: bash
         run: claude --version | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the mod tests of this shard
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
-        run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/${{ matrix.shards }}
+        run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/6
 
   mods-newest:
     name: mods on newest Claude Code
