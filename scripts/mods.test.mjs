@@ -1741,6 +1741,7 @@ test('format-check --changed checks every file when a root config path is staged
   )
   assert.deepEqual(
     output
+      .replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '')
       .split('\n')
       .filter((line) => line.startsWith('[warn] mods/') || line.startsWith('[warn] scripts/')),
     ['[warn] mods/broken/hooks/register.ts'],
