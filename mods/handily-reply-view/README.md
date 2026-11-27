@@ -2910,14 +2910,8 @@ chart draws under the block before it.
   stays open or folded when it draws again. A press on `more` of a message row below 110
   columns keeps one small value for that row, and the `message` tab keeps the id of the message
   that it shows.
-- A press on `more` of a long reply first scrolls that reply to the top of the window, then
-  opens it. At the bottom of a fullscreen transcript the engine keeps its bottom edge, so without
-  the scroll the rest of the reply pushed the reply and its `less` button out of view (probe P2
-  of handily-z1k1cu, Claude Code 2.1.328). The engine moves a transcript row only while the mod
-  answers the press itself, so the scroll runs inside the press, before the reply opens. A scroll
-  after the reply opened was refused as `not person-initiated` (handily-wlanuz, Claude Code
-  2.1.331). A refused scroll goes to the debug log, and the reply still opens. `less` and the
-  `more` of a code block do not scroll.
+- A press on `more` or `less` scrolls nothing. The rest of the reply opens below the button, and
+  the view stays in place (handily-7vcozj, reply-view 0.36.0).
 - With another pane already docked, such as the board, the transcript is narrower, for example 83
   columns at 150. The mod keeps in memory the widest transcript columns that its own renders saw
   in fullscreen, and the rows that came with them. A press counts as docked when the transcript

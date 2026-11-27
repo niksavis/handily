@@ -1565,7 +1565,8 @@ Bash npm test
 - ctrl+x tab gives the keyboard to the pane (or the band above the prompt). It does not switch tabs.
 - In a pane that holds the keyboard: Tab walks the buttons, Enter presses, the arrows scroll, Esc hands
   the keyboard back. ctrl+x x closes the pane.
-- No mod hotkeys in release 1. A Button `hotkey` works only while the pane holds the keyboard.
+- Hotkeys: `1` to `5` press the agent buttons and `6` to `9` the recommended task buttons
+  (handily-e83jxw). A Button `hotkey` works only while the pane holds the keyboard.
 
 ### 8.8 Tab labels
 

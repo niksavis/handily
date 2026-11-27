@@ -1792,15 +1792,12 @@ place on the screen. The mocks are `docs/mocks.md` section 21.
   paragraph goes on from the next word, a table from the next row, a code block from the next
   line with its line numbers, a diagram from its next row, and a shared row from the next row of
   each cell. The rest has no title and no button, so no button key repeats.
-- **More keeps the reply in view** (handily-wlanuz). At the bottom of a fullscreen transcript
-  the engine keeps the bottom edge, so the rest that opens under the fold row pushed the reply up
-  and out of view (probe P2). So a press on `more` of a reply calls
-  `$.ui.scroll({ to: { requestId }, block: 'start' })` inside the press, before it sets the fold
-  state. A scroll after the state was set is refused as `not person-initiated`, measured on
-  Claude Code 2.1.331. In tmux at 120 columns the reply and its `less` stayed in view at 40 and
-  60 rows, and without the scroll the view jumped to the last lines. The press handler is
-  `pressFold(port, id, next, block)` in `hooks/fold-press.ts`. `less` and the `more` of a code
-  block do not scroll.
+- **More keeps the view in place** (handily-7vcozj, reply-view 0.36.0). A press on `more` sets
+  the fold state and scrolls nothing. The rest of the reply opens below the button. The scroll to
+  the top of the reply of handily-wlanuz is removed: the owner found that the view jumped, and on
+  reply-view 0.36.0 it does not jump. The press handler is `pressFold(port, id, next, block)` in
+  `hooks/fold-press.ts`. Probe P2 of handily-z1k1cu still describes the engine before the change
+  and is to be run again on the current engine.
 - **Recaps** have no render site (probe P4): engine gap handily-xaxdjy.
 
 #### The capability file (handily-goaeym)
