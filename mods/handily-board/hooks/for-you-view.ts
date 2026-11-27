@@ -26,6 +26,7 @@ const RECOMMENDED_WORD = 'recommended'
 const RECOMMENDED_LEAD = 'recommended: '
 const RECOMMENDED_COLOR: ThemeKey = 'suggestion'
 const ACCEPT_LABEL = 'accept'
+const RECOMMENDED_HOTKEYS = ['6', '7', '8', '9'] as const
 
 export type ForYouPress = {
   done: (id: number) => void
@@ -241,21 +242,65 @@ function optionOrder(count: number, best: number | undefined): number[] {
   return best === undefined ? numbers : [best, ...numbers.filter((number) => number !== best)]
 }
 
-function optionRows(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
+function recommendedAnswer(task: BoardTask): string | undefined {
+  const { recommended } = task
+  return task.kind === 'answer' && typeof recommended === 'string' ? recommended : undefined
+}
+
+function drawsRecommendedButton(task: BoardTask, view: ForYouView): boolean {
+  if (view.layout.expanded.has(rejectKey(task.id))) return false
+  return recommendedOption(task) !== undefined || recommendedAnswer(task) !== undefined
+}
+
+function recommendedHotkeys(
+  open: readonly BoardTask[],
+  view: ForYouView,
+): ReadonlyMap<number, string> {
+  const keyed = open.filter((task) => drawsRecommendedButton(task, view))
+  return new Map(
+    keyed.flatMap((task, index) => {
+      const hotkey = RECOMMENDED_HOTKEYS[index]
+      return hotkey === undefined ? [] : [[task.id, hotkey] as const]
+    }),
+  )
+}
+
+function hotkeyLead(hotkey: string | undefined): string {
+  return hotkey === undefined ? '' : `${hotkey}: `
+}
+
+function hotkeyProp(hotkey: string | undefined): { hotkey?: string } {
+  return hotkey === undefined ? {} : { hotkey }
+}
+
+function optionRows(
+  elements: PaneElements,
+  task: BoardTask,
+  view: ForYouView,
+  hotkey: string | undefined,
+): RenderElement[] {
   const { Box, Button, Text } = elements
   const id = String(task.id)
   const labels = (task.options ?? []).map((option) => escaped(option))
   const best = recommendedOption(task)
   const order = optionOrder(labels.length, best)
   const room = elements.bodyColumns - UNDER_INDENT
+  const lead = hotkeyLead(hotkey)
+  const starred = (label: string) => `${RECOMMENDED_MARK} ${label}`
   const shown = (number: number, label: string) =>
-    number === best ? `${RECOMMENDED_MARK} ${label}` : label
+    number === best ? `${lead}${starred(label)}` : label
   const pick = (number: number, label: string) =>
     Button({
       key: `for-pick:${id}:${String(number)}`,
       label: shown(number, label),
       ...(number === best
-        ? { children: [Text({ color: RECOMMENDED_COLOR, children: shown(number, label) })] }
+        ? {
+            ...hotkeyProp(hotkey),
+            children: [
+              ...(lead === '' ? [] : [Text({ children: lead })]),
+              Text({ color: RECOMMENDED_COLOR, children: starred(label) }),
+            ],
+          }
         : {}),
       onPress: () => {
         view.press.pick(task.id, number)
@@ -307,15 +352,18 @@ function recommendedAnswerLines(
   elements: PaneElements,
   task: BoardTask,
   view: ForYouView,
+  hotkey: string | undefined,
 ): RenderElement[] {
-  const { recommended } = task
-  if (task.kind !== 'answer' || typeof recommended !== 'string') return []
+  const recommended = recommendedAnswer(task)
+  if (recommended === undefined) return []
   const { Box, Button, Text } = elements
   const id = String(task.id)
   const text = `"${escaped(recommended)}"`
+  const acceptLabel = `${hotkeyLead(hotkey)}${ACCEPT_LABEL}`
   const accept = Button({
     key: `for-accept:${id}`,
-    label: ACCEPT_LABEL,
+    label: acceptLabel,
+    ...hotkeyProp(hotkey),
     onPress: () => {
       view.press.answer(task.id, recommended)
     },
@@ -323,7 +371,7 @@ function recommendedAnswerLines(
   const room = elements.bodyColumns - UNDER_INDENT
   const lead = Text({ dimColor: true, children: RECOMMENDED_LEAD })
   const leadWidth = displayWidth(RECOMMENDED_LEAD)
-  const fits = leadWidth + displayWidth(text) + BUTTON_GAP + buttonWidth(ACCEPT_LABEL) <= room
+  const fits = leadWidth + displayWidth(text) + BUTTON_GAP + buttonWidth(acceptLabel) <= room
   if (fits) {
     return [
       Box({
@@ -391,7 +439,12 @@ function rejectingLines(
   return [confirm, cancel]
 }
 
-function openActions(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
+function openActions(
+  elements: PaneElements,
+  task: BoardTask,
+  view: ForYouView,
+  hotkey: string | undefined,
+): RenderElement[] {
   const { Button, Input, Text } = elements
   const id = String(task.id)
   const note = view.notes.get(task.id)
@@ -413,10 +466,10 @@ function openActions(elements: PaneElements, task: BoardTask, view: ForYouView):
             },
           })
         : Text({ dimColor: true, children: `answer: /board answer ${id} <text>` })
-      return [...recommendedAnswerLines(elements, task, view), field, ...notes, reject]
+      return [...recommendedAnswerLines(elements, task, view, hotkey), field, ...notes, reject]
     }
     case 'decide':
-      return [...optionRows(elements, task, view), ...notes, reject]
+      return [...optionRows(elements, task, view, hotkey), ...notes, reject]
     case 'do':
     case undefined: {
       const done = Button({
@@ -711,6 +764,7 @@ function drawTask(
   task: BoardTask,
   idWidth: number,
   view: ForYouView,
+  hotkey: string | undefined,
 ): RenderElement {
   const { Box, Text } = elements
   const line = rowLine(elements, task, idWidth, view)
@@ -722,7 +776,7 @@ function drawTask(
         : [
             ...chatLines(elements, task, view),
             ...staleLines(elements, task, view),
-            ...openActions(elements, task, view),
+            ...openActions(elements, task, view, hotkey),
           ]
   return Box({
     key: `task:for:${String(task.id)}`,
@@ -754,7 +808,8 @@ export function drawForYou(elements: PaneElements, view: ForYouView): RenderElem
   const isAllOpenShown = view.layout.expanded.has(FOR_YOU_GROUP) || open.length <= OPEN_SHOWN
   const shownOpen = isAllOpenShown ? open : open.slice(0, OPEN_SHOWN)
   const isSentShown = view.layout.expanded.has(ANSWERED_GROUP)
-  const draw = (task: BoardTask) => drawTask(elements, task, idWidth, view)
+  const hotkeys = recommendedHotkeys(shownOpen, view)
+  const draw = (task: BoardTask) => drawTask(elements, task, idWidth, view, hotkeys.get(task.id))
   const sentCount = String(sent.length)
   return [
     drawHead(elements, asked),

@@ -3019,17 +3019,17 @@ describe('a recommended option or answer that the person accepts with one click 
         await assignRecommended($)
         expect(await forYouAt($, surface, 76)).toEqual([
           '◆ 1 decide  Which cache store for now?',
-          '    [ ★ SQLite ] recommended [ Postgres ] [ Redis ]',
+          '    [ 6: ★ SQLite ] recommended [ Postgres ] [ Redis ]',
           '    [ reject ]',
           '◆ 2 answer  Which port does staging use?',
-          `    recommended: "${RECOMMEND_ANSWER}" [ accept ]`,
+          `    recommended: "${RECOMMEND_ANSWER}" [ 7: accept ]`,
           '    [ Your answer ][Send]',
           '    [ reject ]',
         ])
         expect((await forYouAt($, surface, 41)).slice(0, 4)).toEqual([
           '◆ 1 decide  Which cache store for now?',
-          '    [ ★ SQLite ] recommended [ Postgres ]',
-          '    [ Redis ]',
+          '    [ 6: ★ SQLite ] recommended',
+          '    [ Postgres ] [ Redis ]',
           '    [ reject ]',
         ])
         const pane = await mountTasks($, surface)
@@ -3061,7 +3061,7 @@ describe('a recommended option or answer that the person accepts with one click 
           '◆ 2 answer  Which port does staging use?',
           '    recommended: "Use port 8443 on the',
           '                 staging host"',
-          '    [ accept ]',
+          '    [ 7: accept ]',
           '    [ Your answer ][Send]',
           '    [ reject ]',
         ])
@@ -3097,8 +3097,10 @@ describe('a recommended option or answer that the person accepts with one click 
         })
         const lines = await forYouAt($, surface, 41)
         expect(lines.join('\n')).not.toContain('…')
-        expect(lines[1]).toBe('    [ ★ 3 ] Both regions, with the probe')
-        expect(joinedWords(lines)).toContain(`[ ★ 3 ] ${ASKED_OPTIONS[2] ?? ''} recommended [ 1 ]`)
+        expect(lines[1]).toBe('    [ 6: ★ 3 ] Both regions, with the')
+        expect(joinedWords(lines)).toContain(
+          `[ 6: ★ 3 ] ${ASKED_OPTIONS[2] ?? ''} recommended [ 1 ]`,
+        )
         const pane = await mountTasks($, surface)
         expect(await forKeys(pane, 'for-pick')).toEqual([
           'for-pick:1:3',
@@ -3431,4 +3433,161 @@ describe('a recommended option or answer that the person accepts with one click 
       )
     },
   )
+})
+
+const KEYED_CRITERION =
+  'While the board holds the keyboard, the keys 6 to 9 press the recommended task buttons top to bottom, each label shows its key, the agents keep 1 to 5, and a digit typed in the prompt presses no button (handily-e83jxw)'
+
+async function hotkeysOf(
+  pane: Awaited<ReturnType<typeof mountTasks>>,
+  keys: readonly string[],
+): Promise<(string | undefined)[]> {
+  const found = []
+  for (const key of keys) {
+    const button = await pane.find({ key })
+    found.push(typeof button?.props.hotkey === 'string' ? button.props.hotkey : undefined)
+  }
+  return found
+}
+
+async function digitHotkeys(
+  ui: Awaited<ReturnType<typeof mountTasks>>,
+): Promise<Record<string, string>> {
+  const keyed: Record<string, string> = {}
+  for (const button of await ui.findAll({ type: 'Button' })) {
+    const { hotkey } = button.props
+    if (typeof hotkey === 'string' && /^\d$/u.test(hotkey)) keyed[button.key ?? ''] = hotkey
+  }
+  return keyed
+}
+
+async function assignCacheStores($: Engine, count: number): Promise<void> {
+  for (let at = 1; at <= count; at += 1) {
+    await $.tool.call({
+      tool: TOOL_ASSIGN,
+      kind: 'decide',
+      title: `Which cache store for lane ${String(at)}?`,
+      options: ['Postgres', 'SQLite', 'Redis'],
+      recommended: 2,
+    })
+  }
+}
+
+const CACHE_PICKS = [1, 2, 3, 4, 5].map((id) => `for-pick:${String(id)}:2`)
+
+describe(KEYED_CRITERION, () => {
+  for (const surface of SURFACES) {
+    test(
+      `the recommended buttons take the keys 6 and 7 top to bottom with the key in the label, and a press sends the choice, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on)
+        await start($)
+        await assignRecommended($)
+        expect(await forYouAt($, surface, 76)).toEqual([
+          '◆ 1 decide  Which cache store for now?',
+          '    [ 6: ★ SQLite ] recommended [ Postgres ] [ Redis ]',
+          '    [ reject ]',
+          '◆ 2 answer  Which port does staging use?',
+          `    recommended: "${RECOMMEND_ANSWER}" [ 7: accept ]`,
+          '    [ Your answer ][Send]',
+          '    [ reject ]',
+        ])
+        const narrow = await forYouAt($, surface, 40)
+        expect(narrow.filter((line) => line.includes(': ★') || line.includes('accept'))).toEqual([
+          '    [ 6: ★ SQLite ] recommended',
+          '    [ 7: accept ]',
+        ])
+        const pane = await mountTasks($, surface)
+        const pick = await pane.find({ key: 'for-pick:1:2' })
+        expect([pick?.text, pick?.props.hotkey]).toEqual(['6: ★ SQLite', '6'])
+        const accept = await pane.find({ key: 'for-accept:2' })
+        expect([accept?.text, accept?.props.hotkey]).toEqual(['7: accept', '7'])
+        expect(await hotkeysOf(pane, ['for-pick:1:1', 'for-pick:1:3', 'for-reject:1'])).toEqual([
+          undefined,
+          undefined,
+          undefined,
+        ])
+        await pane.press({ key: 'for-pick:1:2' })
+        expect(entered).toMatchObject([{ text: RECOMMEND_SENT_CHOICE, origin: OWN_PROMPT }])
+        await pane.unmount()
+        const after = await mountTasks($, surface)
+        const renumbered = await after.find({ key: 'for-accept:2' })
+        expect([renumbered?.text, renumbered?.props.hotkey]).toEqual(['6: accept', '6'])
+        await after.unmount()
+      },
+    )
+
+    test(
+      `a recommendation in the folded rest gets no key, the fifth gets none, and a task in reject mode frees its key, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        await start($)
+        await assignCacheStores($, 5)
+        const folded = await mountTasks($, surface)
+        expect(await hotkeysOf(folded, CACHE_PICKS)).toEqual(['6', '7', '8', undefined, undefined])
+        expect(await folded.find({ key: 'for-pick:4:2' })).toBeUndefined()
+        await folded.press({ key: 'for-more' })
+        await folded.unmount()
+        const unfolded = await mountTasks($, surface)
+        expect(await hotkeysOf(unfolded, CACHE_PICKS)).toEqual(['6', '7', '8', '9', undefined])
+        expect((await unfolded.find({ key: 'for-pick:5:2' }))?.text).toBe('★ SQLite')
+        await unfolded.press({ key: 'for-reject:1' })
+        await unfolded.unmount()
+        const rejecting = await mountTasks($, surface)
+        expect(await rejecting.find({ key: 'for-pick:1:2' })).toBeUndefined()
+        expect(await hotkeysOf(rejecting, CACHE_PICKS.slice(1))).toEqual(['6', '7', '8', '9'])
+        await rejecting.unmount()
+      },
+    )
+
+    test(
+      `the agents keep the digits 1 to 5 beside the recommended keys, and no digit has two buttons, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on, { hasOwnPromptHook: true })
+        await start($)
+        await spawnFrom($, SCOUT)
+        seen.agents.push(runningAgent(SCOUT, 'scout'))
+        await spawnFrom($, LANE)
+        seen.agents.push(runningAgent(LANE, 'lane-b'))
+        await assignRecommended($)
+        const pane = await mountTasks($, surface)
+        expect(await digitHotkeys(pane)).toEqual({
+          [`open:agent:${SCOUT}`]: '1',
+          [`open:agent:${LANE}`]: '2',
+          'for-pick:1:2': '6',
+          'for-accept:2': '7',
+        })
+        await pane.unmount()
+      },
+    )
+
+    test(
+      `while the person types in the prompt, a digit presses no recommended button: the band holds no key and a prompt of 6 closes no task, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on, { hasOwnPromptHook: true })
+        const entered = enteredPrompts(on)
+        await start($)
+        await assignRecommended($)
+        const band = await mountBand($, surface)
+        const keyed = (await band.findAll({ type: 'Button' })).filter(
+          (button) => button.props.hotkey !== undefined,
+        )
+        expect(keyed).toEqual([])
+        await band.unmount()
+        await $.prompt.submit({ text: '6', wait: false, origin: { kind: 'composer' } })
+        expect(entered.map((one) => one.text)).toEqual(['6'])
+        const listed = await board($, 'list')
+        expect(listed).not.toContain('chose')
+        expect(listed).not.toContain(`answer "${RECOMMEND_ANSWER}"`)
+        const pane = await mountTasks($, surface)
+        expect(await hotkeysOf(pane, ['for-pick:1:2', 'for-accept:2'])).toEqual(['6', '7'])
+        await pane.unmount()
+      },
+    )
+  }
 })

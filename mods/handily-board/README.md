@@ -171,6 +171,7 @@ You can press every button on both panes with the keyboard alone. A live check o
 | Esc                        | Gives the keyboard back to the prompt. The board stays open                                                                 |
 | `f`, `s`, `o`              | Shows or hides the last 5 checks of the file, shell or other family                                                         |
 | `1` to `5`                 | Opens or closes the agent with that digit                                                                                   |
+| `6` to `9`                 | Presses the recommended button of an open task for you, top to bottom. The label shows the key, such as `6: ★ SQLite`       |
 
 - `/board` already gives the keyboard to the pane it brings forward. Press Tab, not ctrl+x tab.
   ctrl+x tab there moves the keyboard to the next pane. A live check in tmux on Claude Code
@@ -196,6 +197,12 @@ You can press every button on both panes with the keyboard alone. A live check o
   folds the plan.
 - The `+N done` and `+N ended` folds add their rows after the button. The plan button adds only
   rows of text, which take no focus. So for these buttons the focus stays on the button.
+- The keys `6` to `9` go to the recommended buttons of the open tasks in `For you`: the
+  recommended option of a `decide` task and `accept` of an `answer` task. The first shown
+  recommendation takes `6`. A fifth recommendation gets no key, and so does a task behind the
+  `+N more for you` fold or a task with its reject field open. After a press, the keys count
+  again from `6`. The keys work only while the board pane has the keyboard. A digit in the
+  prompt presses no button. Tests cover this (handily-e83jxw). No live check has confirmed it yet.
 - The tests check each tab on the terminal and desktop surfaces. Each button has its own key,
   the buttons come in reading order, and `/board` asks for the keyboard with `focus` only. The
   live check covered the terminal. The desktop app was not checked live.
@@ -534,20 +541,20 @@ For you  ◆ 3 open
 - Claude can recommend a choice with `recommended` in `task_assign`: the number of an option
   for a `decide` task, or one line of at most 200 characters for an `answer` task. A `do` task
   takes no recommendation, and an option number out of range is refused. The recommended option
-  draws first, as `[ ★ SQLite ]` in the suggestion colour of the theme, with the dim word
+  draws first, as `[ 6: ★ SQLite ]` in the suggestion colour of the theme, with the dim word
   `recommended`. The other options follow in their order. An answer task shows `recommended:`
-  and the answer, with `[ accept ]`. One press on the option or on `[ accept ]` sends it, the
+  and the answer, with `[ 7: accept ]`. One press on the option or on `accept` sends it, the
   same way as a press on an option or `[Send]`. Docked at 41 columns:
 
   ```text
   ◆ 1 decide  Which cache store for now?
-      [ ★ SQLite ] recommended [ Postgres ]
-      [ Redis ]
+      [ 6: ★ SQLite ] recommended
+      [ Postgres ] [ Redis ]
       [ reject ]
   ◆ 2 answer  Which port does staging use?
       recommended: "Use port 8443 on the
                    staging host"
-      [ accept ]
+      [ 7: accept ]
       [ Your answer ][Send]
       [ reject ]
   ```
