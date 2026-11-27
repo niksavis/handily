@@ -1995,16 +1995,16 @@ What is in place (handily-fwkt.1):
 
 | Gate | Tool | `basicly.toml` check |
 | --- | --- | --- |
-| Validate | `claude plugin validate --strict`, plus a name check across folder, manifest and marketplace | `mods-validate` (full mode and CI), `mods-validate-changed` (pre-commit and pre-push hooks, the reached mods) |
-| Type check | `tsc` 6.0.3 per mod | `mods-typecheck` (full mode and CI), `mods-typecheck-changed` (pre-commit and pre-push hooks, the reached mods) |
-| Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` (full mode and CI), `eslint-changed` (pre-commit and pre-push hooks, the reached mods and the changed scripts) |
+| Validate | `claude plugin validate --strict`, plus a name check across folder, manifest and marketplace | `mods-validate` (full mode and CI) |
+| Type check | `tsc` 6.0.3 per mod | `mods-typecheck` (full mode and CI) |
+| Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` (full mode and CI) |
 | Format | Prettier 3.9 | `prettier` (full mode and CI), `prettier-changed` (pre-commit and pre-push hooks, the changed files, with a fix command) |
-| Test | `claude plugin test`; a mod with no test fails | `mods-test` (full mode and CI), `mods-test-changed` (pre-commit and pre-push hooks, the tests of the mods whose folder or import closure holds a changed file) |
+| Test | `claude plugin test`; a mod with no test fails | `mods-test` (full mode and CI) |
 
-A `-changed` check of validate, type check, lint or format runs only for the mods that a change
-reaches, by `changedMods` in `scripts/staged.mjs`. A path that maps to no mod, or a root config
-path, runs every mod for these four checks; `mods-test-changed` keeps its own selection and never
-runs every mod (handily-u3gl4j). `CONTRIBUTING.md` gives the full map.
+The pre-commit and pre-push hooks run only `prettier-changed`, the secret scan and the commit
+checks. Validate, type check, lint and the mod tests run in CI, and the `every gate ran` job of
+`basicly-gates` fails a run in which one of them did not pass (handily-ecyzjc, owner order of
+2026-11-27). `CONTRIBUTING.md` gives the `--changed` commands for a run by hand.
 
 Measured facts behind these choices:
 

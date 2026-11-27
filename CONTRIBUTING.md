@@ -67,19 +67,32 @@ rest of its folder, through the same copy that the gate uses for a test that run
 Give `--file` more than once to run more files. It refuses a path that is not a test file of a
 mod, and it does not go together with `--shard`. No gate passes `--file`.
 
-### Changed checks in the pre-commit and pre-push hooks
+### Checks in the pre-commit and pre-push hooks
 
-The pre-commit hook and the pre-push hook run the `fast` checks of `basicly.toml`. Each of
-these checks runs its command with `--changed`, so it runs only for the mods that the change
-reaches:
+The pre-commit hook and the pre-push hook run the `fast` checks of `basicly.toml`, and the fast
+mode holds one check, `prettier-changed`. The hooks also run the secret scan of the staged
+files, the comment ban and the other basicly commit checks, and the commit-message checks. They
+run no mod test, no type check, no lint and no validate (handily-ecyzjc, owner order of
+2026-11-27: heavy checks run in CI, not on the machine of the person).
 
 | Check | Command | What it runs |
 | --- | --- | --- |
-| `mods-validate-changed` | `node scripts/mods.mjs validate --changed` | `claude plugin validate --strict` for each reached mod. The marketplace checks run only when the change reaches every mod, or when a path in a `.claude-plugin` folder changed |
-| `mods-typecheck-changed` | `node scripts/mods.mjs typecheck --changed` | `tsc` for each reached mod |
-| `eslint-changed` | `node scripts/mods.mjs lint --changed` | The hidden character check and ESLint over the folders of the reached mods and the changed `.mjs` files under `scripts/` |
 | `prettier-changed` | `node scripts/mods.mjs format-check --changed` | `prettier --check` over the changed files under `mods`, `probes`, `scripts` and `eslint.config.mjs`. Its fix command writes the format before the gate |
-| `mods-test-changed` | `node scripts/mods.mjs test --changed` | Every test file of each reached mod, and the scripts tests that the list below names |
+
+The `basicly-gates` workflow runs validate, the type check, lint, the format check, the scripts
+tests and every mod test on every pull request and every push to `main`. Its job
+`every gate ran` fails the run unless the `gates` job and every mod test shard passed. A
+`scripts/workflows.test.mjs` test refuses a second check in the fast mode.
+
+The commands `validate`, `typecheck`, `lint` and `test` also take `--changed` for a run by
+hand. No hook runs them. Each one runs only for the mods that the change reaches:
+
+| Command | What it runs |
+| --- | --- |
+| `node scripts/mods.mjs validate --changed` | `claude plugin validate --strict` for each reached mod. The marketplace checks run only when the change reaches every mod, or when a path in a `.claude-plugin` folder changed |
+| `node scripts/mods.mjs typecheck --changed` | `tsc` for each reached mod |
+| `node scripts/mods.mjs lint --changed` | The hidden character check and ESLint over the folders of the reached mods and the changed `.mjs` files under `scripts/` |
+| `node scripts/mods.mjs test --changed` | Every test file of each reached mod, and the scripts tests that the list below names |
 
 The commands read the changed paths from one of two sources:
 

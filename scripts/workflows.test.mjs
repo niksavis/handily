@@ -104,6 +104,28 @@ describe('CI runs every configured check, and the sharded mod tests cover every 
     assert.deepEqual(missingRuns(gatesPath, commands), [])
   })
 
+  test('the fast mode of basicly.toml, which the pre-commit and pre-push hooks run, holds only prettier-changed', () => {
+    const fast = read('basicly.toml')
+      .split('[[verify.checks]]')
+      .slice(1)
+      .filter((block) =>
+        JSON.parse(/^modes = (\[.*\])$/m.exec(block)?.[1] ?? '[]').includes('fast'),
+      )
+      .map((block) => /^name = "(.+)"$/m.exec(block)?.[1])
+    assert.deepEqual(fast, ['prettier-changed'])
+  })
+
+  test('checks-ran fails a pull request or push run unless the gates job and every mod test shard passed', () => {
+    const text = read(gatesPath)
+    const job = /^ {2}checks-ran:\n((?: {4}.*\n|\n)+)/m.exec(text)?.[1] ?? ''
+    assert.match(job, /^ {4}needs: \[gates, mod-tests\]$/m)
+    assert.match(job, /^ {4}if: \$\{\{ always\(\) && github\.event_name != 'schedule' \}\}$/m)
+    assert.match(job, /GATES: \$\{\{ needs\.gates\.result \}\}/)
+    assert.match(job, /TESTS: \$\{\{ needs\.mod-tests\.result \}\}/)
+    assert.match(job, /test "\$\{GATES\}" = success/)
+    assert.match(job, /test "\$\{TESTS\}" = success/)
+  })
+
   test('the release runs every task of npm run check', () => {
     const commands = ['validate', 'typecheck', 'lint'].map(
       (task) => `node scripts/mods.mjs ${task}`,
