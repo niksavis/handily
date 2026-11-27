@@ -39,6 +39,7 @@ export type BoardTask = {
   options?: readonly string[]
   recommended?: number | string
   why?: string
+  commands?: readonly string[]
   askedAt?: number
   result?: BoardResult
   isWithdrawn?: boolean

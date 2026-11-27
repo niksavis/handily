@@ -374,6 +374,7 @@ function openDetail(task: BoardTask): string | undefined {
   const parts = [
     options.length === 0 ? undefined : `options ${options.map(quoted).join(', ')}`,
     recommendedDetail(task),
+    task.commands === undefined ? undefined : `commands ${task.commands.map(quoted).join(', ')}`,
   ].filter((part) => part !== undefined)
   return parts.length === 0 ? undefined : parts.join('; ')
 }

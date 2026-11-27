@@ -2439,6 +2439,62 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
   )
 
   test(
+    'task_assign keeps the command lines of a do task without a leading !, and refuses commands by name for another kind, an empty or long line, a line break and 9 lines',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      expect(seen.descriptions.get('task_assign')).toContain(
+        'For the kind do, put each exact shell command that the person runs in commands, one line each, without a leading !; the board shows each line with a copy button.',
+      )
+      const deny = async (input: Record<string, unknown>) =>
+        (await $.tool.call({ tool: TOOL_ASSIGN, ...input })).deny
+      expect(
+        await deny({
+          kind: 'decide',
+          title: 'Push now?',
+          options: ['go', 'not now'],
+          commands: ['git push'],
+        }),
+      ).toBe('task_assign takes commands only with the kind do.')
+      expect(await deny({ kind: 'do', title: 'Push it', commands: 'git push' })).toBe(
+        'task_assign needs commands for the kind do as a list of 1 to 8 strings, one shell command line each, for example {"commands": ["git push origin main"]}.',
+      )
+      expect(await deny({ kind: 'do', title: 'Push it', commands: [] })).toBe(
+        'task_assign needs 1 to 8 commands for the kind do; it got 0.',
+      )
+      expect(
+        await deny({
+          kind: 'do',
+          title: 'Push it',
+          commands: Array.from({ length: 9 }, () => 'ls'),
+        }),
+      ).toBe('task_assign needs 1 to 8 commands for the kind do; it got 9.')
+      expect(await deny({ kind: 'do', title: 'Push it', commands: ['ls', '! '] })).toBe(
+        'task_assign refused command 2: it is empty.',
+      )
+      expect(
+        await deny({ kind: 'do', title: 'Push it', commands: [`echo ${'a'.repeat(396)}`] }),
+      ).toBe('task_assign refused command 1: it has 401 characters. The limit is 400.')
+      expect(await deny({ kind: 'do', title: 'Push it', commands: ['npm ci\nnpm test'] })).toBe(
+        'task_assign refused command 1: it has a line break or a control character. Give each line as its own string, for example {"commands": ["npm ci", "npm test"]}.',
+      )
+      expect(await modelTool($, {})).toBe('The task list is empty.')
+      const longest = `echo ${'a'.repeat(395)}`
+      const assigned = await $.tool.call({
+        tool: TOOL_ASSIGN,
+        kind: 'do',
+        title: 'Push the release tag',
+        commands: ['! git push origin v1.2.0', '!git push origin main', longest],
+      })
+      expect(assigned.deny).toBeUndefined()
+      const row = `  1  open      do      "Push the release tag"  commands "git push origin v1.2.0", "git push origin main", "${longest}"`
+      expect(String(assigned.result).split('\n')).toContain(row)
+      expect((await board($, 'list')).split('\n')).toContain(row)
+    },
+  )
+
+  test(
     'task_assign asks for a decide task with go and not now before a release, a merge, a cleanup or a delete, and keeps the permission prompt',
     withWorkitems,
     async ($, on) => {
@@ -2627,6 +2683,67 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
       await mobile.unmount()
     },
   )
+
+  for (const surface of SURFACES) {
+    test(
+      `an opened do task draws each command line dim and cut to the width with a copy button, and a press copies the full line and toasts on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const copies: { text: string; surface: string | undefined }[] = []
+        const refusals: 'no-clipboard'[] = []
+        on('ui.copy', (_$, e) => {
+          const [reason] = refusals
+          if (reason !== undefined) return { value: { isCopied: false as const, reason } }
+          copies.push({ text: e.text, surface: e.surface })
+          return { value: { isCopied: true as const } }
+        })
+        await start($)
+        const long = 'git push origin main --follow-tags --force-with-lease'
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'do',
+          title: 'Push the release tag',
+          commands: ['! git push origin v1.2.0', long],
+        })
+        const pane = await mountTasks($, surface)
+        expect(await pane.find({ key: 'copy:1:0' })).toBeUndefined()
+        expect(await screen(pane, 41)).not.toContain('    git push origin v1.2.0')
+        await pane.press({ key: 'open:for:1' })
+        const lines = forYouLines(await screen(pane, 41))
+        expect(lines.slice(0, 5)).toEqual([
+          '◆ 1 do      Push the release tag',
+          '    asked 0s ago',
+          `${'    git push origin v1.2.0'.padEnd(36)} copy`,
+          '    git push origin main --follow-t… copy',
+          '    [ done ] [ reject ]',
+        ])
+        const shown = await pane.find({ type: 'Text', text: 'git push origin v1.2.0' })
+        expect(shown?.props.dimColor).toBe(true)
+        expect(
+          (await pane.findAll({ type: 'Button' }))
+            .map((button) => button.key)
+            .filter((key) => key?.startsWith('copy:')),
+        ).toEqual(['copy:1:0', 'copy:1:1'])
+        await pane.press({ key: 'copy:1:1' })
+        expect(copies).toEqual([{ text: long, surface }])
+        expect(seen.toasts).toEqual([['✓ Copied', 'type ! in the prompt, then paste']])
+        refusals.push('no-clipboard')
+        await pane.press({ key: 'copy:1:0' })
+        expect(seen.toasts.at(-1)).toEqual(['■ Not copied', 'the clipboard took nothing'])
+        expect(copies).toHaveLength(1)
+        await pane.unmount()
+        const narrow = await mountTasks($, surface, 'dock', 30)
+        expect(forYouLines(await screen(narrow, 30))).toEqual(
+          expect.arrayContaining([
+            '    git push origin v1.2… copy',
+            '    git push origin main… copy',
+          ]),
+        )
+        await narrow.unmount()
+      },
+    )
+  }
 })
 
 const SENT_ANSWER = 'Answer to task 2, "Which port does staging use?": 8443'

@@ -1,4 +1,4 @@
-import type { PluginOptions, RenderSurface } from 'claude-code'
+import type { PluginOptions, RenderSurface, UiCopyResult } from 'claude-code'
 import type { ChatView } from './chat'
 import type { PromptSend } from './for-you'
 import { marked, type ToastParts } from './toast'
@@ -42,6 +42,7 @@ export type PaneUi = {
   close: (id: string) => Promise<void>
   panes: () => Promise<readonly OpenPane[]>
   fillPrompt: (text: string) => Promise<PromptFill>
+  copy: (text: string, surface: RenderSurface) => Promise<UiCopyResult>
   submitPrompt: (text: string) => Promise<PromptSend>
   openAgents: () => Promise<void>
   openFiles: (taskId: number) => Promise<void>

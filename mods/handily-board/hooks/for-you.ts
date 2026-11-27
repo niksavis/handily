@@ -36,12 +36,16 @@ import { closedRow } from './transcript'
 export const KINDS: readonly BoardTaskKind[] = ['do', 'answer', 'decide']
 export const MAX_ANSWER_LENGTH = 1000
 export const MAX_OPTION_LENGTH = 60
+export const MAX_COMMAND_LENGTH = 400
 export const MAX_OPEN_FOR_PERSON = 20
 export const MAX_KEPT_PROMPTS = 20
 export const OPEN_LINE_AT_MOST = 5
 export const CLOSE_HOWS: readonly BoardCloseHow[] = ['claude_did', 'person_did', 'not_needed']
 const OPTIONS_AT_LEAST = 2
 const OPTIONS_AT_MOST = 4
+const COMMANDS_AT_LEAST = 1
+const COMMANDS_AT_MOST = 8
+const BANG = '!'
 const TOLD = 'Claude is told at your next prompt.'
 const NOT_SENT = 'Not sent'
 export const ANSWER_EXAMPLE =
@@ -55,6 +59,7 @@ export type AssignInput = {
   options: unknown
   why: unknown
   recommended: unknown
+  commands: unknown
 }
 
 export type Assignment = {
@@ -63,6 +68,7 @@ export type Assignment = {
   options: readonly string[] | undefined
   recommended: number | string | undefined
   why: string | undefined
+  commands: readonly string[] | undefined
 }
 
 function isKind(value: unknown): value is BoardTaskKind {
@@ -98,6 +104,44 @@ function optionsRefusal(options: unknown): string | undefined {
   const twice = texts.find((text, index) => texts.indexOf(text) !== index)
   if (twice !== undefined) return `task_assign refused: the option ${quoted(twice)} is given twice.`
   return undefined
+}
+
+function commandLine(text: string): string {
+  const line = text.trim()
+  return line.startsWith(BANG) ? line.slice(BANG.length).trimStart() : line
+}
+
+function commandRefusal(index: number, line: string): string | undefined {
+  const number = String(index + 1)
+  if (line === '') return `task_assign refused command ${number}: it is empty.`
+  if (textFault(line, MAX_COMMAND_LENGTH) === 'control') {
+    return `task_assign refused command ${number}: it has a line break or a control character. Give each line as its own string, for example {"commands": ["npm ci", "npm test"]}.`
+  }
+  const refusal = lineRefusal('it', line, MAX_COMMAND_LENGTH)
+  return refusal === undefined ? undefined : `task_assign refused command ${number}: ${refusal}`
+}
+
+type Commands = { value: readonly string[] | undefined } | { deny: string }
+
+function commandsOf(kind: BoardTaskKind, commands: unknown): Commands {
+  if (commands === undefined) return { value: undefined }
+  if (kind !== 'do') return { deny: 'task_assign takes commands only with the kind do.' }
+  if (!Array.isArray(commands) || !commands.every((one) => typeof one === 'string')) {
+    return {
+      deny: 'task_assign needs commands for the kind do as a list of 1 to 8 strings, one shell command line each, for example {"commands": ["git push origin main"]}.',
+    }
+  }
+  if (commands.length < COMMANDS_AT_LEAST || commands.length > COMMANDS_AT_MOST) {
+    return {
+      deny: `task_assign needs 1 to 8 commands for the kind do; it got ${String(commands.length)}.`,
+    }
+  }
+  const lines = commands.map((one: string) => commandLine(one))
+  for (const [index, line] of lines.entries()) {
+    const refusal = commandRefusal(index, line)
+    if (refusal !== undefined) return { deny: refusal }
+  }
+  return { value: lines }
 }
 
 type Recommended = { value: number | string | undefined } | { deny: string }
@@ -168,12 +212,15 @@ export function assignment(input: AssignInput): Assignment | { deny: string } {
       : undefined
   const recommended = recommendedOf(kind, asked?.length ?? 0, input.recommended)
   if ('deny' in recommended) return recommended
+  const commands = commandsOf(kind, input.commands)
+  if ('deny' in commands) return commands
   return {
     kind,
     title: title.trim(),
     options: asked,
     recommended: recommended.value,
     why: why === undefined || why.trim() === '' ? undefined : why.trim(),
+    commands: commands.value,
   }
 }
 
@@ -206,6 +253,7 @@ export function assignTask(
     ...(asked.options === undefined ? {} : { options: asked.options }),
     ...(asked.recommended === undefined ? {} : { recommended: asked.recommended }),
     ...(asked.why === undefined ? {} : { why: asked.why }),
+    ...(asked.commands === undefined ? {} : { commands: asked.commands }),
   }
   return {
     list: {

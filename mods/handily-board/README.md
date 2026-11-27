@@ -561,6 +561,28 @@ For you  ◆ 3 open
 
 - `task_list` shows `recommended 2 (SQLite)` or `recommended "8443"` on the row of an open
   task.
+- Claude can give the exact shell commands of a `do` task with `commands` in `task_assign`:
+  1 to 8 lines of at most 400 characters each, one command line in each. A leading `!` is
+  removed. The board refuses `commands` for an `answer` or `decide` task, an empty line, a
+  longer line, a line with a line break, and more than 8 lines, by name.
+- When you open the task, each line draws dim, cut to the width with `…`, with `copy` at the
+  right. A press copies the full line and shows the toast `Copied` with
+  `type ! in the prompt, then paste`. When the copy fails, the toast `Not copied` says why.
+  `task_list` and `/board list` show the full lines on the row of an open task. Docked at 41
+  columns:
+
+  ```text
+  ◆ 1 do      Push the release tag
+      asked 0s ago
+      git push origin v1.2.0           copy
+      git push origin main --follow-t… copy
+      [ done ] [ reject ]
+  ```
+
+- The board only copies a command. It never runs a command, and it never puts one in your
+  prompt box. A mod cannot start the bash mode of Claude Code: a leading `!` that a mod fills
+  or submits reaches Claude as text. A probe with Claude Code 2.1.332 measured this, as record
+  handily-eq3pqp says. So you type `!` yourself, and paste the line.
 - When your prompt is only `go`, `yes`, `ok`, the number of an option or an option label, in
   any case and with an optional final period, it is one word for Claude. When exactly one open
   task for you is a decide or answer task, the line for Claude names the option or the answer

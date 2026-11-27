@@ -430,6 +430,7 @@ const TOOLS: readonly ToolSpec[] = [
       'When a release, a merge, a cleanup or a delete waits for the person, assign a decide task with the options go and not now, and act only after the answer go, while a permission prompt stays as it is.',
       'The call does not block. The result of the person comes with a later prompt: an answer or a choice that the person presses on the board comes as their own prompt, which names the task, and any other result in a message that starts with [handily-board]; do not wait for it in this turn. Returns the whole list.',
       'Close a task for the person with task_close when you did it, when the person says in the chat that they did it, or when it is no longer needed. Only the main loop can assign a task.',
+      'For the kind do, put each exact shell command that the person runs in commands, one line each, without a leading !; the board shows each line with a copy button.',
     ].join(' '),
     inputSchema: {
       type: 'object',
@@ -452,6 +453,14 @@ const TOOLS: readonly ToolSpec[] = [
             'Optional. For the kind decide: the number of the option that you recommend, from 1. For the kind answer: the answer that you recommend, as one line of at most 200 characters. The person accepts it with one click on the board or one word in the chat.',
         },
         why: { type: 'string', description: 'Why you ask, as one short line. Optional.' },
+        commands: {
+          type: 'array',
+          items: { type: 'string', minLength: 1, maxLength: 400 },
+          minItems: 1,
+          maxItems: 8,
+          description:
+            'For the kind do only. Optional: 1 to 8 exact shell command lines that the person runs, each one line of at most 400 characters, without a leading !.',
+        },
       },
       required: ['kind', 'title'],
       additionalProperties: false,
@@ -1639,6 +1648,7 @@ function uiOf($: EngineInterface, keeps: UiKeeps): PaneUi {
     },
     panes: () => $.ui.panes(),
     fillPrompt: (text) => fillPrompt($, text),
+    copy: (text, surface) => $.ui.copy({ text, surface }),
     submitPrompt: (text) => submitPrompt($, log, text),
     openAgents: async () => {
       await $.command.run({ command: 'tasks' })
@@ -2481,6 +2491,7 @@ export const register: Register = (on, options) => {
       options: e.options,
       why: e.why,
       recommended: e.recommended,
+      commands: e.commands,
     }
     const assigned = await modelAssign(hostOf($), input, e.agentId, await $.clock.now())
     if (assigned.task !== undefined) asks.push(assigned.task)

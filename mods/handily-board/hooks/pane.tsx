@@ -67,7 +67,14 @@ import {
   fileFinding,
   fixFinding,
 } from './findings'
-import { AGENTS_VIEW_FAILED, CHANGE_FAILED, FILES_VIEW_FAILED, refusedParts } from './replies'
+import {
+  AGENTS_VIEW_FAILED,
+  CHANGE_FAILED,
+  COPY_FAILED,
+  FILES_VIEW_FAILED,
+  copyParts,
+  refusedParts,
+} from './replies'
 import { SIGNALS, type SignalLooks } from './signals'
 import {
   doneCount,
@@ -1006,6 +1013,14 @@ function forYouPress(host: TaskHost, ui: PaneUi, act: Act, now: number) {
     },
     unneeded: (id: number) => {
       settle(id, () => personUnneeded(host, id, now))
+    },
+    copy: async (text: string, surface: RenderSurface) => {
+      try {
+        ui.showToast(copyParts(await ui.copy(text, surface)))
+      } catch (error) {
+        ui.log(`handily-board: the command was not copied: ${String(error)}`)
+        ui.showToast(COPY_FAILED)
+      }
     },
     clear: () => {
       act(async () => (await personClear(host)).toastParts)

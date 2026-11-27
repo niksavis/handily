@@ -1,4 +1,4 @@
-import type { RenderElement, TextProps, ThemeKey } from 'claude-code'
+import type { RenderElement, RenderSurface, TextProps, ThemeKey } from 'claude-code'
 import type { BoardList, BoardResult, BoardResultVerb, BoardTask } from '../types'
 import { elapsedText } from './activity'
 import { type ChatMark, type ChatView, openText, staleFor } from './chat'
@@ -8,7 +8,7 @@ import { logTime } from './log'
 import type { PaneElements, RowLayout } from './pane'
 import { SIGNALS, type SignalLooks } from './signals'
 import { escaped, isForPerson } from './tasks'
-import { displayWidth } from './width'
+import { displayWidth, fitted } from './width'
 
 export const FOR_YOU_GROUP = 'group:for-you'
 export const ANSWERED_GROUP = 'group:answered'
@@ -27,6 +27,7 @@ const RECOMMENDED_LEAD = 'recommended: '
 const RECOMMENDED_COLOR: ThemeKey = 'suggestion'
 const ACCEPT_LABEL = 'accept'
 const RECOMMENDED_HOTKEYS = ['6', '7', '8', '9'] as const
+const COPY_LABEL = 'copy'
 
 export type ForYouPress = {
   done: (id: number) => void
@@ -37,6 +38,7 @@ export type ForYouPress = {
   reopen: (id: number) => void
   keepOpen: (id: number) => void
   unneeded: (id: number) => void
+  copy: (text: string, surface: RenderSurface) => Promise<void>
   clear: () => void
 }
 
@@ -652,7 +654,47 @@ function openedLines(elements: PaneElements, task: BoardTask, view: ForYouView) 
     ...(task.why === undefined
       ? []
       : wrappedLines(elements, escaped(task.why), room, { dimColor: true })),
+    ...commandRows(elements, task, view),
   ]
+}
+
+function commandRows(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
+  if (task.kind !== 'do' || task.commands === undefined) return []
+  const { Box, Button, Text } = elements
+  const id = String(task.id)
+  const room = elements.bodyColumns - UNDER_INDENT - BUTTON_GAP - displayWidth(COPY_LABEL)
+  return task.commands.map((line, index) =>
+    Box({
+      key: `command:${id}:${String(index)}`,
+      flexDirection: 'row',
+      children: [
+        Box({
+          flexDirection: 'row',
+          flexGrow: 1,
+          flexShrink: 1,
+          children: [
+            Text({
+              dimColor: true,
+              mono: true,
+              children: fitted(escaped(line), Math.max(room, 1)),
+            }),
+          ],
+        }),
+        Box({
+          flexShrink: 0,
+          marginLeft: BUTTON_GAP,
+          children: [
+            Button({
+              key: `copy:${id}:${String(index)}`,
+              label: COPY_LABEL,
+              plain: true,
+              onPress: (press) => view.press.copy(line, press.surface),
+            }),
+          ],
+        }),
+      ],
+    }),
+  )
 }
 
 type Labelled = { button: RenderElement; label: string }
