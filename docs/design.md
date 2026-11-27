@@ -132,7 +132,8 @@ dots, `2▶`, `⌀` and `↻` are not built yet. In their place, the time of a t
 | Blocked | none | `failed` | `dead`, a file not read, a fill not done |
 | Waits for you | none | none | `needs you`, an open ask (`decide`) |
 
-The this machine tab draws `stale` and `old ask` with `?` in `subtle`. It is not a signal.
+The this machine tab draws `stale` and `old ask` with `?` in `inactive`, and the this session tab
+draws `not listed` the same way (handily-cjsdh1). It is not a signal.
 
 On 2026-10-09 the person also asked the task pane to drop the author `claude` from each row.
 The pane shows the author only for `you` and `tracker`.

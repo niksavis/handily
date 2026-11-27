@@ -1487,14 +1487,14 @@ Sessions  6 · 2 need you · 1 dead · read 12s ago
   tab draws the cards.
 - The board escapes each control and bidi character in a text from a file.
 
-| Mark | Word                    | Colour    |
-| ---- | ----------------------- | --------- |
-| `◆`  | `decide`, `needs you`   | `warning` |
-| `■`  | `dead`, a file not read | `error`   |
-| `▶`  | `working`               | `claude`  |
-| `○`  | `quiet`, `withdrawn`    | `subtle`  |
-| `?`  | `stale`, `old ask`      | `subtle`  |
-| `✓`  | `approved`              | `success` |
+| Mark | Word                    | Colour     |
+| ---- | ----------------------- | ---------- |
+| `◆`  | `decide`, `needs you`   | `warning`  |
+| `■`  | `dead`, a file not read | `error`    |
+| `▶`  | `working`               | `claude`   |
+| `○`  | `quiet`, `withdrawn`    | `subtle`   |
+| `?`  | `stale`, `old ask`      | `inactive` |
+| `✓`  | `approved`              | `success`  |
 
 ### Asks
 

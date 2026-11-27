@@ -77,7 +77,7 @@ const NO_CONTEXT = 'ctx —'
 const NO_TOKENS = 'ctx —  out —'
 const THOUSAND = 1_000
 const CONTEXT_COLUMNS = 7
-const UNLISTED_LOOK = { mark: '?', color: 'subtle' } as const satisfies {
+const UNLISTED_LOOK = { mark: '?', color: 'inactive' } as const satisfies {
   mark: string
   color: ThemeKey
 }

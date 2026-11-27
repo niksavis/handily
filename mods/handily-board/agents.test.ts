@@ -1178,6 +1178,12 @@ describe(UNLISTED_CRITERION, () => {
             ],
           ),
         )
+        const unlisted = drawnOf(await ui.find({ key: 'row:agent:f0000010bbbb' }))
+        const unlistedColours = (unlisted === null ? [] : texts(unlisted))
+          .filter((one) => one.text.includes('?') || one.text.includes('not listed'))
+          .map((one) => one.props.color)
+        expect(unlistedColours.length).toBeGreaterThan(0)
+        expect([...new Set(unlistedColours)]).toEqual(['inactive'])
         seen.agents.splice(0)
         const dropped = $.tool.call(inLoop({ tool: 'AskUserQuestion', questions: [] }, 'g1'))
         await ask.arrived(2)
