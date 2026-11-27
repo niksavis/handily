@@ -6,6 +6,19 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.38.0 - 2026-11-27
+
+A do task shows a copy button for each command line.
+
+### Added
+
+- **A do task of the board shows each shell command line with a copy button.** Claude gives the
+  exact lines in the new `commands` field of `task_assign`: 1 to 8 lines of at most 400
+  characters each, only for the kind `do`. When you open the task under For you, each line
+  draws dim, cut to the width, with `copy` at the right. A press copies the full line. Then
+  type `!` in the prompt and paste. The board never runs, fills or submits a command, because a
+  mod cannot start the bash mode of Claude Code. (handily-eq3pqp)
+
 ## handily-board 0.37.0 - 2026-11-27
 
 The question mark status is easier to read.
