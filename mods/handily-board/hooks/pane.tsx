@@ -193,7 +193,7 @@ type PaneRow = {
 
 export type RowLayout = {
   expanded: ReadonlySet<string>
-  toggle: (rowKey: string) => void
+  toggle: (rowKey: string, focusKey?: string) => void
   toggleAmong: (rowKey: string, among: readonly string[]) => void
 }
 
@@ -382,19 +382,27 @@ function toggled(keys: readonly string[], rowKey: string, among: readonly string
   return others.includes(rowKey) ? others.filter((key) => key !== rowKey) : [...others, rowKey]
 }
 
-function rowLayout(host: TaskHost, expanded: readonly string[], act: Act): RowLayout {
-  const edit = (rowKey: string, among: readonly string[]) => {
+function rowLayout(
+  host: TaskHost,
+  expanded: readonly string[],
+  act: Act,
+  focus: (key: string) => Promise<void>,
+): RowLayout {
+  const edit = (rowKey: string, among: readonly string[], focusKey?: string) => {
     act(async () => {
       await host.editExpanded((keys) => toggled(keys, rowKey, among))
+      if (focusKey !== undefined) await focus(focusKey)
       return undefined
     })
   }
   return {
     expanded: new Set(expanded),
-    toggle: (rowKey) => {
-      edit(rowKey, [])
+    toggle: (rowKey, focusKey) => {
+      edit(rowKey, [], focusKey)
     },
-    toggleAmong: edit,
+    toggleAmong: (rowKey, among) => {
+      edit(rowKey, among)
+    },
   }
 }
 
@@ -750,7 +758,7 @@ function drawTracker(
           key: 'all-items',
           label: foldLabel,
           onPress: () => {
-            layout.toggle(ITEMS_GROUP)
+            layout.toggle(ITEMS_GROUP, 'all-items')
           },
         })
       : null,
@@ -1039,7 +1047,7 @@ export async function drawPane(
   const list = ownList(all)
   const plan = await drawPlan(elements, host, plans, all, act)
   const hasList = list.tasks.length > 0
-  const layout = rowLayout(host, await host.expanded(), act)
+  const layout = rowLayout(host, await host.expanded(), act, (key) => ui.focus(key))
   const forYou = drawForYou(elements, {
     list: all,
     now: work.now,

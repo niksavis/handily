@@ -989,7 +989,7 @@ describe(NO_OPEN_CRITERION, () => {
 const FOLD_CRITERION =
   'When more than 6 agents are active, the tab draws 6 rows, failed ones first, and folds the rest, so the Add input stays visible at 41 columns'
 
-async function manyAgents($: Engine, on: On): Promise<void> {
+async function manyAgents($: Engine, on: On): Promise<ReturnType<typeof world>> {
   const seen = world(on)
   await start($)
   await $.tool.call({ tool: TOOL_ADD, title: 'Write the tab mocks' })
@@ -1007,6 +1007,7 @@ async function manyAgents($: Engine, on: On): Promise<void> {
   await spawn($, 'f1', 'general-purpose', 'run the tests', { name: 'lane-b' })
   await bashAs($, 'f1', 'npm test')
   seen.agents.push(listed('f1', 'general-purpose', 'failed', { name: 'lane-b' }))
+  return seen
 }
 
 describe(FOLD_CRITERION, () => {
@@ -1015,7 +1016,7 @@ describe(FOLD_CRITERION, () => {
       `16 active agents fold to 6 rows on ${surface}, the failed one first`,
       withWorkitems,
       async ($, on) => {
-        await manyAgents($, on)
+        const seen = await manyAgents($, on)
         const ui = await mountTab($, surface, 'dock', 41)
         expect(await screen(ui, 41)).toEqual(
           bySurface(
@@ -1069,6 +1070,11 @@ describe(FOLD_CRITERION, () => {
           ),
         )
         await ui.press({ key: 'group:more-agents' })
+        expect(
+          seen.logs.filter((text) =>
+            text.startsWith('handily-board: the focus did not move to group:more-agents:'),
+          ),
+        ).toHaveLength(1)
         const lines = unframed(await screen(ui, 41))
         expect(lines.filter((line) => /^(\d:| {2}) ▶ Expl/u.test(line))).toHaveLength(15)
         expect(lines.slice(-4)).toEqual([

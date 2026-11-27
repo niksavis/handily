@@ -738,7 +738,7 @@ function foldButton(key: string, label: string, layout: RowLayout): FoldButton {
     key,
     label,
     onPress: () => {
-      layout.toggle(key)
+      layout.toggle(key, key)
     },
   }
 }

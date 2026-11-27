@@ -185,9 +185,9 @@ You can press every button on both panes with the keyboard alone. A live check o
   the next drawing has. This is tested through the requested key only. No live check has
   confirmed it: the test kit has no focus ring, and a tmux check on 2.1.311 could not reach the
   task buttons, because Tab cycled only the tab row and the close mark.
-- The `+N more agents` and `all N open` folds add their rows before the button, so by the same
-  rule the focus goes to the first row that the fold shows. Use Tab or Shift+Tab to go back to
-  the button.
+- The `+N more agents` and `all N open` folds add their rows before the button. After a press
+  the mod asks Claude Code to put the focus on the same button again, as for `up` and `down`.
+  This is tested through the requested key only, like `up` and `down`.
 - The focus shows as inverted text. Reading order is top to bottom, and left to right on a line.
   After the last button, Tab goes to the `Add a task` input, then to the tab row and the close
   mark of Claude Code, and then to the first button again.
