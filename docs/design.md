@@ -1999,11 +1999,12 @@ What is in place (handily-fwkt.1):
 | Type check | `tsc` 6.0.3 per mod | `mods-typecheck` (full mode and CI), `mods-typecheck-changed` (pre-commit and pre-push hooks, the reached mods) |
 | Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` (full mode and CI), `eslint-changed` (pre-commit and pre-push hooks, the reached mods and the changed scripts) |
 | Format | Prettier 3.9 | `prettier` (full mode and CI), `prettier-changed` (pre-commit and pre-push hooks, the changed files, with a fix command) |
-| Test | `claude plugin test`; a mod with no test fails | `mods-test` (full mode and CI), `mods-test-changed` (pre-commit and pre-push hooks, the tests of the reached mods) |
+| Test | `claude plugin test`; a mod with no test fails | `mods-test` (full mode and CI), `mods-test-changed` (pre-commit and pre-push hooks, the tests of the mods whose folder or import closure holds a changed file) |
 
-A `-changed` check runs only for the mods that a change reaches, by `changedMods` in
-`scripts/staged.mjs`. A path that maps to no mod, or a root config path, runs every mod
-(handily-u3gl4j). `CONTRIBUTING.md` gives the full map.
+A `-changed` check of validate, type check, lint or format runs only for the mods that a change
+reaches, by `changedMods` in `scripts/staged.mjs`. A path that maps to no mod, or a root config
+path, runs every mod for these four checks; `mods-test-changed` keeps its own selection and never
+runs every mod (handily-u3gl4j). `CONTRIBUTING.md` gives the full map.
 
 Measured facts behind these choices:
 

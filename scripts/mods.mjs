@@ -1636,7 +1636,6 @@ function changedSelection(mods) {
     paths,
     testFilesOf: listTestFiles,
     isSkipped: isGeneratedTypesPath,
-    dependenciesOf: declaredDependencyNames,
   })
   const total = [...selection.filesByMod.values()].reduce((sum, files) => sum + files.size, 0)
   console.log(

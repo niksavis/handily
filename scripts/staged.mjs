@@ -108,6 +108,19 @@ function dependantsClosure(mods, reached, dependenciesOf) {
   return names
 }
 
+function reachedMods(root, mods, changed, isSkipped) {
+  const mapped = new Set()
+  const reached = new Set()
+  for (const mod of mods) {
+    const folder = `${posixPath(relative(root, mod.dir))}/`
+    const closure = importClosure(root, sourceFilesOf(root, mod.dir, isSkipped))
+    const hits = changed.filter((path) => path.startsWith(folder) || closure.has(path))
+    for (const path of hits) mapped.add(path)
+    if (hits.length > 0) reached.add(mod.name)
+  }
+  return { reached, mapped }
+}
+
 export function changedMods({
   root,
   mods,
@@ -120,29 +133,15 @@ export function changedMods({
   const runnerFiles = gateRunnerFiles(root)
   const setsAll = (path) => rootConfigPattern.test(path) || runnerFiles.has(path)
   if (changed.some(setsAll)) return { all: true, names: allNames }
-  const mapped = new Set(changed.filter((path) => path.startsWith(scriptsFolder)))
-  const reached = new Set()
-  for (const mod of mods) {
-    const folder = `${posixPath(relative(root, mod.dir))}/`
-    const closure = importClosure(root, sourceFilesOf(root, mod.dir, isSkipped))
-    const hits = changed.filter((path) => path.startsWith(folder) || closure.has(path))
-    for (const path of hits) mapped.add(path)
-    if (hits.length > 0) reached.add(mod.name)
-  }
+  const { reached, mapped } = reachedMods(root, mods, changed, isSkipped)
+  for (const path of changed) if (path.startsWith(scriptsFolder)) mapped.add(path)
   if (changed.some((path) => !mapped.has(path))) return { all: true, names: allNames }
   return { all: false, names: dependantsClosure(mods, reached, dependenciesOf) }
 }
 
-export function changedTests({
-  root,
-  mods,
-  paths,
-  testFilesOf,
-  isSkipped = () => false,
-  dependenciesOf = () => [],
-}) {
+export function changedTests({ root, mods, paths, testFilesOf, isSkipped = () => false }) {
   const changed = paths.filter((path) => !isDocument(path) && !isGeneratedTypes(path))
-  const reached = changedMods({ root, mods, paths: changed, isSkipped, dependenciesOf }).names
+  const { reached } = reachedMods(root, mods, changed, isSkipped)
   const filesByMod = new Map()
   for (const mod of mods) {
     if (reached.has(mod.name)) filesByMod.set(mod.name, new Set(testFilesOf(mod)))

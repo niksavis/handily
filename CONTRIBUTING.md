@@ -105,9 +105,11 @@ same map from a changed path to the mods, `changedMods` in `scripts/staged.mjs`:
   root file such as `basicly.toml`. A changed file under `scripts/` that no mod imports reaches no
   mod.
 
-When the change reaches every mod, each check runs as its full command. A generated
-`.claude-plugin/types` file reaches its mod for validate, the type check and lint, but it runs no
-test. The test check also runs these scripts tests:
+When the change reaches every mod, validate, the type check, lint and the format check run as
+their full commands. The test check does not use the every-mod rule. It runs the tests of a mod
+only for a changed file in the folder of the mod or in the import closure of its source files. A
+generated `.claude-plugin/types` file reaches its mod for validate, the type check and lint, but
+it runs no test. The test check also runs these scripts tests:
 
 - A changed scripts test runs.
 - A scripts test runs when it imports a changed file, directly or through other imports.
@@ -116,7 +118,8 @@ test. The test check also runs these scripts tests:
   `scripts/mods.mjs`, and `scripts/width.test.mjs` reads `hooks/width.ts` of each mod. The rule
   also selects a test that only writes a file of that name in a fixture, such as `register.ts`.
 
-So a commit or a push of Markdown files only runs no check. When no path changed, or the change
+A commit of Markdown files only reaches no mod. `prettier-changed` still checks a changed
+Markdown file under `mods`, `probes` or `scripts`. When no path changed, or the change
 reaches nothing, each `--changed` command says that it runs nothing, names the full command and
 passes. `test --changed` does not go together with `--file` or `--shard`. The full gates stay in
 CI. The `full` checks `mods-validate`, `mods-typecheck`, `eslint`, `prettier` and `mods-test`

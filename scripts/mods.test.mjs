@@ -1155,12 +1155,12 @@ test('changedTests maps a staged generated types path to no test', () => {
   })
 })
 
-test('changedTests maps a staged root config path to every test file of every mod', () => {
-  assert.deepEqual(selectStaged(['package.json']).mods, {
-    alpha: ['alpha.test.ts', 'hooks/inner.test.ts'],
-    beta: ['beta.test.ts'],
-    gamma: ['gamma.test.ts'],
-  })
+test('changedTests maps a staged root config path or a path of no mod to no mod test', () => {
+  assert.deepEqual(selectStaged(['package.json']).mods, {})
+  assert.deepEqual(
+    selectStaged(['.claude-plugin/marketplace.json', '.github/workflows/x.yml']).mods,
+    {},
+  )
 })
 
 const stagedModNames = ['alpha', 'beta', 'gamma']
