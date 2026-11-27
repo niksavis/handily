@@ -158,9 +158,12 @@ async function listOpenItems(files: TrackerFiles, memory: VersionMemory): Promis
   const argv0 = await approvedProgram(files, memory)
   if (argv0 === undefined) return approvalNeeded()
   const argv = [argv0, ...COMMAND.slice(1), ...ITEMS_FLAGS]
-  const output = await files.shared(await ledgerPlace(files), await sharedMark(files, argv), () =>
-    runJson(files, LABEL, argv, pythonEnv(files.root)),
-  )
+  const output = await files.shared({
+    place: await ledgerPlace(files),
+    mark: await sharedMark(files, argv),
+    freshMs: VAULT_READ_MS,
+    run: () => runJson(files, LABEL, argv, pythonEnv(files.root)),
+  })
   const items = itemsOf(LABEL, output)
   return { ok: true, items, sourceLabel: SOURCE, caveat: null, listsOpenOnly: true }
 }

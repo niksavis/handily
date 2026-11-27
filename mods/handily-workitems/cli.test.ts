@@ -2378,9 +2378,9 @@ type SharedWorld = {
 const SHARED_VERSION = 'basicly 0.49.6'
 const SHARED_FOLDER_PATH = `${HOME}/.cache/handily/workitems`
 
-function sharedWorld(on: On): SharedWorld {
+function sharedWorld(on: On, repo: Record<string, string> = FROZEN_REPO): SharedWorld {
   const files = new Map<string, FakeFile>()
-  for (const [relative, text] of Object.entries(FROZEN_REPO)) {
+  for (const [relative, text] of Object.entries(repo)) {
     files.set(`${ROOT}/${relative}`, { text, mtimeMs: 10 })
   }
   files.set(BASICLY_BIN, { text: 'binary', mtimeMs: 1 })
@@ -2552,6 +2552,21 @@ describe('one tracker read per ledger change across sessions', () => {
     expect(lastItems(second)).toEqual(SHARED_KEYS)
     expect(first.published).toEqual([])
     expect(stuck).toBeInstanceOf(Promise)
+  })
+
+  test('a cache older than 60 s is not used for a ledger folder that did not change', async (_$, on) => {
+    const world = sharedWorld(on, BASICLY_REPO)
+    const first = sharedSession(world)
+    const second = sharedSession(world)
+    const third = sharedSession(world)
+    await first.provider.refresh()
+    await world.clock.advance(VAULT_READ_MS - 1)
+    await second.provider.refresh()
+    expect(world.itemRuns).toBe(1)
+    await world.clock.advance(1)
+    await third.provider.refresh()
+    expect(world.itemRuns).toBe(2)
+    expect(lastItems(third)).toEqual(SHARED_KEYS)
   })
 
   test('a cache kept under an older vault read step is not used', async (_$, on) => {

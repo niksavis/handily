@@ -394,8 +394,12 @@ handily-egnvhi). So all sessions of a user share one run for each ledger state.
 - The hash is the SHA-256 of the real path of `.basicly/ledger`.
 - The mark holds the ledger stamp, the 60 second step for a vault ledger, the kit files, the
   size and time of the `basicly` program, and the command.
-- A session reads the cache first. When the cache holds the same mark, the session uses it and
-  runs no command. The mod checks each item of the cache as it checks the command output.
+- A session reads the cache first. When the cache holds the same mark and is less than 60 s
+  old, the session uses it and runs no command. The mod checks each item of the cache as it
+  checks the command output.
+- The age limit makes a session that starts later, or a `/workitems resume`, run the command
+  again, as before. A ledger folder that holds only a `redirect` file, as in a git worktree,
+  does not change when the ledger changes, so the mark alone would keep an old read.
 - Otherwise the session takes the lock, runs the command once, writes the cache and drops the
   lock. A session that finds the lock held checks the cache again every 250 ms, for up to 30 s.
   A lock that is 30 s old or older is stale, and the next session takes it over.
@@ -414,8 +418,13 @@ handily-egnvhi). So all sessions of a user share one run for each ledger state.
   `$.workitems.lines` or `$.workitems.create`. The reads of the mod itself do not count.
 - The next read starts the poll again at once, and the mod reads the tracker in the same
   moment. The read that started it gets the last snapshot.
-- A board or a toast that draws reads the snapshot each time, so the poll runs while one shows
-  the work items.
+- item-toasts reads the snapshot at each tick, every 2 s, while it is on. So the poll does not
+  stop while item-toasts is on.
+- The board pane draws again every 10 s while it is shown, and each draw reads the snapshot.
+  When the pane is shown again after a pause, its first draw starts the poll.
+- The engine gives no signal of a view that read the snapshot once and waits for a change. Such
+  a view reads nothing while nothing changes, so the poll can stop under it. It shows the last
+  snapshot until it draws again, and that draw reads the tracker.
 
 ## Pause and resume
 
