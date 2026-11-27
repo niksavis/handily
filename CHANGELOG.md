@@ -6,6 +6,21 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.35.0 - 2026-11-27
+
+The keys 6 to 9 press the recommended task buttons, and the README names why a mouse click can miss.
+
+### Added
+
+- **The keys 6 to 9 press the recommended task buttons on the board.** While the board pane
+  has the keyboard, `6` presses the first recommended option or `accept` in `For you`, `7` the
+  next, up to `9`. Each label shows its key, such as `6: ★ SQLite`. The agents keep `1` to `5`,
+  and a digit typed in the prompt presses no button (handily-e83jxw).
+- **The board README names why a mouse click can miss.** Claude Code drops a press when the
+  pointer moves to another cell before the release, so the board gets no press. The note gives
+  the measured counts and the workarounds: hold the mouse still, or use Tab and Enter
+  (handily-kkzm06).
+
 ## handily-reply-view 0.36.0 - 2026-11-27
 
 A click on more in reply-view keeps the view in place.
