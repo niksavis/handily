@@ -81,7 +81,7 @@ jobs:
       - name: Install dev dependencies
         run: npm ci --no-fund --no-audit
       - name: Install the pinned Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.329
+        run: npm install -g @anthropic-ai/claude-code@2.1.332
       - name: mods-validate
         run: node scripts/mods.mjs validate
       - name: mods-typecheck
@@ -101,7 +101,7 @@ jobs:
     name: mod tests ${{ matrix.shard }} of 6 on ${{ matrix.engine }} Claude Code
     runs-on: ubuntu-latest
     env:
-      CLAUDE_CODE_PACKAGE: ${{ matrix.engine == 'newest' && '@anthropic-ai/claude-code@latest' || '@anthropic-ai/claude-code@2.1.329' }}
+      CLAUDE_CODE_PACKAGE: ${{ matrix.engine == 'newest' && '@anthropic-ai/claude-code@latest' || '@anthropic-ai/claude-code@2.1.332' }}
     strategy:
       fail-fast: false
       matrix:
