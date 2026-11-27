@@ -24,8 +24,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-board",
-        "ref": "handily-board--v0.34.3",
-        "sha": "1b95e7a0c8e12255d7e05ada0b05ce3fa0164a72"
+        "ref": "handily-board--v0.35.0",
+        "sha": "0697dad8856caa1befd0c8c7ce6c3ea2e2b64aab"
       },
       "description": "A board with two panes, one open at a time: this session shows the task list that Claude and you share, and this machine reads a session store folder and shows its open owner asks and every session in it. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss."
     },
