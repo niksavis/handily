@@ -1326,6 +1326,10 @@ No agents yet.
   It does not send it.
 - When the warning holds and you submit a prompt, the mod adds one note for Claude beside the
   prompt, at most once per 20 tool calls.
+- A message from another Claude session also gets the note, as in an orchestrated worker
+  session. That note says that it is for the session itself and not for the sender, and that
+  Claude must not reply about it. The limit of once per 20 tool calls covers both kinds of
+  prompt. A notification of a background task gets no note.
 - Only a tool call that Claude Code raises for the model counts. A tool call that a plugin
   raises does not count. An example is the `AskUserQuestion` call of the `workitems` approval
   question.

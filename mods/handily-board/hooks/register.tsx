@@ -34,6 +34,7 @@ import {
   elapsedText,
   isNoteDue,
   isTaskTool,
+  type NoteReader,
   planLag,
   planNote,
   toolTarget,
@@ -361,6 +362,10 @@ const REJECTED_DECISION = 'reject'
 const PERSON_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
   'composer',
   'bridge',
+])
+const SESSION_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin['kind']>([
+  'peer',
+  'coordinator',
 ])
 
 const TOOLS: readonly ToolSpec[] = [
@@ -971,12 +976,18 @@ async function putBackChanges(
   }
 }
 
-async function dueNote($: EngineInterface): Promise<DueNote | undefined> {
+function planNoteReader(kind: PromptOrigin['kind']): NoteReader | undefined {
+  if (PERSON_ORIGINS.has(kind)) return 'person'
+  if (SESSION_ORIGINS.has(kind)) return 'session'
+  return undefined
+}
+
+async function dueNote($: EngineInterface, reader: NoteReader): Promise<DueNote | undefined> {
   const list = await readList(hostOf($))
   const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
   const lag = planLag(activity)
   if (lag === undefined || !isNoteDue(activity)) return undefined
-  return { text: planNote(lag, ownList(list).tasks.length > 0), calls: activity.sincePlan }
+  return { text: planNote(lag, ownList(list).tasks.length > 0, reader), calls: activity.sincePlan }
 }
 
 const SCRIPT_TOOL = 'REPL'
@@ -2300,7 +2311,8 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     const isPersonOrigin = PERSON_ORIGINS.has(e.origin.kind)
-    const plan = isPersonOrigin ? await dueNote($) : undefined
+    const reader = planNoteReader(e.origin.kind)
+    const plan = reader === undefined ? undefined : await dueNote($, reader)
     const resumed = isPersonOrigin && resume.isNoteDue ? RESUME_NOTE : undefined
     const taken = await takeChanges($)
     const answered = await takeAnswered($, isPersonOrigin)

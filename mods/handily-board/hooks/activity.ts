@@ -152,8 +152,21 @@ export function isNoteDue(activity: BoardActivity): boolean {
 export const RESUME_NOTE =
   '[handily-board] This session was resumed, and the board starts a resumed session with an empty task list. Task ids from before the resume are gone: add your plan again with task_add before you call task_update or task_move.'
 
-export function planNote(lag: number, hasList: boolean): string {
+export type NoteReader = 'person' | 'session'
+
+const SESSION_LEAD = '[handily-board] For this session itself, not for the sender of this message:'
+const NO_REPLY = 'Do not reply about this note.'
+
+function sessionPlanNote(calls: string, hasList: boolean): string {
+  if (!hasList) {
+    return `${SESSION_LEAD} the board shows an empty task list after ${calls} of yours. Update your own board plan with task_add, one task for each step, and task_update as you go. ${NO_REPLY}`
+  }
+  return `${SESSION_LEAD} your task list did not change in ${calls}. Keep your plan current with task_update: in_progress when you start a task, completed when it is done. Add new steps with task_add. ${NO_REPLY}`
+}
+
+export function planNote(lag: number, hasList: boolean, reader: NoteReader): string {
   const calls = `${String(lag)} tool calls`
+  if (reader === 'session') return sessionPlanNote(calls, hasList)
   if (!hasList) {
     return `[handily-board] The person sees an empty task list on the board, after ${calls} of yours. Add your plan with task_add, one task for each step, and keep it current with task_update: in_progress when you start a task, completed when it is done.`
   }

@@ -2526,10 +2526,12 @@ describe('the plan note at prompt submit', () => {
   async function submit(
     $: Engine,
     text: string,
-    kind: 'composer' | 'task-notification' = 'composer',
+    kind: 'composer' | 'task-notification' | 'peer' | 'coordinator' = 'composer',
   ) {
     return $.prompt.submit({ text, wait: false, origin: { kind } })
   }
+
+  const OWN_LEAD = '[handily-board] For this session itself, not for the sender of this message:'
 
   test(
     'while the warning holds a person prompt gets one note for Claude, at most once per 20 tool calls, and is never blocked',
@@ -2612,6 +2614,80 @@ describe('the plan note at prompt submit', () => {
       await readsOf($, 19)
       await submit($, 'after the update')
       expect(rows.at(-1)?.context).toEqual([])
+    },
+  )
+
+  test(
+    'a message from another session after 20 tool calls carries the note for the session itself once, and a task notification gets none',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const rows = submitted(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_LIST })
+      await readsOf($, 20)
+      await submit($, 'a background result', 'task-notification')
+      await submit($, 'a message from the orchestrator', 'peer')
+      await submit($, 'another message', 'peer')
+      await submit($, 'go on')
+      await readsOf($, 20)
+      await submit($, 'next step')
+      expect(rows.map((row) => row.context)).toEqual([
+        [],
+        [
+          `${OWN_LEAD} the board shows an empty task list after 20 tool calls of yours. Update your own board plan with task_add, one task for each step, and task_update as you go. Do not reply about this note.`,
+        ],
+        [],
+        [],
+        [
+          expect.stringContaining(
+            'The person sees an empty task list on the board, after 40 tool calls',
+          ),
+        ],
+      ])
+    },
+  )
+
+  test(
+    'a hand-off from a coordinating session with a stale list carries the stale note for the session itself',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      const rows = submitted(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Write the mocks' })
+      await readsOf($, 20)
+      await submit($, 'the next step of the plan', 'coordinator')
+      await submit($, 'go on')
+      expect(rows.map((row) => row.context)).toEqual([
+        [
+          `${OWN_LEAD} your task list did not change in 20 tool calls. Keep your plan current with task_update: in_progress when you start a task, completed when it is done. Add new steps with task_add. Do not reply about this note.`,
+        ],
+        [],
+      ])
+    },
+  )
+
+  test(
+    'a message from another session carries the plan note alone, and the resume note waits for the person prompt',
+    withWorkitems,
+    async ($, on) => {
+      world(on, { hasOwnPromptHook: true })
+      on('classic.SessionStart', () => ({}))
+      const rows = submitted(on)
+      await start($)
+      await $.classic.SessionStart({ source: 'resume' })
+      await readsOf($, 20)
+      await submit($, 'a message from the orchestrator', 'peer')
+      await submit($, 'go on')
+      expect(rows.map((row) => row.context)).toEqual([
+        [
+          expect.stringMatching(
+            /^\[handily-board\] For this session itself, not for the sender of this message: the board shows an empty task list after 20 tool calls of yours\./,
+          ),
+        ],
+        [expect.stringMatching(/^\[handily-board\] This session was resumed, /)],
+      ])
     },
   )
 
