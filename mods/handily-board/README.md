@@ -200,6 +200,23 @@ You can press every button on both panes with the keyboard alone. A live check o
   the buttons come in reading order, and `/board` asks for the keyboard with `focus` only. The
   live check covered the terminal. The desktop app was not checked live.
 
+## Mouse
+
+A click on a board button or on the `Add a task` input can miss. Claude Code drops a mouse
+press when the pointer moves to another cell of the terminal before the button comes up. This
+holds even when the pointer stays on the same board button. The mod gets no press, so it cannot
+fix this. The cause is in Claude Code, not in the board or in herdr.
+
+- A live check on Claude Code 2.1.332 measured this with mouse events sent through tmux, with
+  and without herdr 0.9.5 (handily-kkzm06). A click that moved one cell missed 21 of 21 times.
+  A clean click hit 69 of 69 times, also while the board redrew each second during a turn. A
+  click that moved only inside one cell hit 6 of 6 times.
+- A missed click on the `Add a task` input leaves the keyboard at the prompt. What you type then
+  goes into the prompt, not into the board.
+- Hold the mouse still while you click.
+- Or use the keyboard: give the keyboard to the board, then press Tab to reach the button and
+  Enter to press it. See [Keyboard](#keyboard).
+
 ## What Claude gets
 
 | Tool          | Input                                                                  | Effect                                      |
