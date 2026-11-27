@@ -6,6 +6,15 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-reply-view 0.36.0 - 2026-11-27
+
+A click on more in reply-view keeps the view in place.
+
+### Changed
+
+- **A click on more in reply-view keeps the view in place.** The transcript no longer scrolls the
+  reply to the top of the window. The rest of the reply opens below the button (handily-7vcozj).
+
 ## handily-simple-view 0.16.1 - 2026-11-26
 
 simple-view leaves the result line of a rejected or stopped call in a new wording to Claude Code.

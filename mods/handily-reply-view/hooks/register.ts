@@ -348,7 +348,6 @@ async function replyMarks($: EngineInterface, surface: RenderSurface): Promise<R
 
 function foldPortOf($: EngineInterface): FoldPort {
   return {
-    scroll: (requestId) => $.ui.scroll({ to: { requestId }, block: 'start' }),
     keep: async (id, next) => {
       await $.state.set({ plugin: 'handily-reply-view', key: 'folds', id }, next)
     },
