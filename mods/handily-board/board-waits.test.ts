@@ -2520,6 +2520,38 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
     },
   )
 
+  test(
+    'a plan tool refuses the id of a task for the person by name: a rename names task_close and task_assign, a place names the order of the asks',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await assignFour($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'Read the config' })
+      const before = await modelTool($, {})
+      const renameRefusal =
+        'Task 2 is a task for the person. To change it, close it with task_close how not_needed and assign the new text with task_assign.'
+      expect((await $.tool.call({ tool: TOOL_UPDATE, id: 2, title: 'Which port?' })).deny).toBe(
+        renameRefusal,
+      )
+      expect(
+        (await $.tool.call({ tool: TOOL_UPDATE, id: 2, title: 'Which port?', status: 'completed' }))
+          .deny,
+      ).toBe(renameRefusal)
+      expect((await $.tool.call({ tool: TOOL_ADD, title: 'Check the port', before: 2 })).deny).toBe(
+        'Task 2 is for the person; its place is the order in which you asked. task_add puts new tasks only before your own tasks.',
+      )
+      expect((await $.tool.call({ tool: TOOL_MOVE, id: 5, before: 2 })).deny).toBe(
+        'Task 2 is for the person; its place is the order in which you asked. task_move moves only your own tasks.',
+      )
+      expect(await modelTool($, {})).toBe(before)
+      await $.tool.call({ tool: TOOL_CLOSE, id: 4, how: 'not_needed', note: 'The bucket is gone' })
+      expect((await $.tool.call({ tool: TOOL_UPDATE, id: 4, title: 'Delete it' })).deny).toBe(
+        'Task 4 for the person is already closed. The person removes closed tasks with /board clear.',
+      )
+    },
+  )
+
   for (const surface of SURFACES) {
     test(
       `Claude closes a task for the person only with task_close, task_update and task_move refuse it, and the row says that Claude closed it on ${surface}`,

@@ -208,7 +208,9 @@ import {
   isNothingTaken,
   keptPrompts,
   openTasksLine,
+  type PersonTaskChange,
   personOnlyRefusal,
+  personPlaceRefusal,
   putBackAnswers,
   reopenedText,
   stillAsked,
@@ -245,6 +247,7 @@ import type {
   BoardList,
   BoardPersonChange,
   BoardPlan,
+  BoardStatus,
   BoardTask,
   BoardToolSight,
   BoardTrend,
@@ -268,6 +271,7 @@ import {
   numbersText,
   removeTask,
   setStatus,
+  setTitle,
   taskText,
   titleRefusal,
   withTrackerNotice,
@@ -280,6 +284,7 @@ import {
   listRow,
   movedRow,
   removedRow,
+  renamedRow,
   statusRow,
 } from './transcript'
 import { EMPTY_TREND, trendMeasured, trendTurnEnded, trendTurnStarted } from './trend'
@@ -337,6 +342,12 @@ const ADD_TITLE_SHAPE =
 const ADD_TITLES_SHAPE =
   'task_add needs titles: a list of non-empty strings, for example {"titles": ["Write the tests", "Run the tests"]}.'
 const ADD_ONE_SHAPE = 'task_add takes title or titles, not both.'
+const UPDATE_ID_SHAPE = 'task_update needs id: the integer task id that task_list shows.'
+const UPDATE_SHAPE =
+  'task_update needs status, title or both, for example {"id": 2, "status": "completed"} or {"id": 2, "title": "Write the tests"}.'
+const UPDATE_TITLE_SHAPE =
+  'task_update needs title as a non-empty string, for example {"id": 2, "title": "Write the tests"}.'
+const UPDATE_REMOVE_SHAPE = 'task_update takes title or the status removed, not both.'
 const ADD_BEFORE_SHAPE =
   'task_add needs before as an integer task id that task_list shows, for example {"titles": ["Write the tests"], "before": 2}.'
 const LIST = { plugin: 'handily-board', key: 'list' } as const
@@ -368,7 +379,21 @@ const SESSION_ORIGINS: ReadonlySet<PromptOrigin['kind']> = new Set<PromptOrigin[
   'coordinator',
 ])
 
-const TOOLS: readonly ToolSpec[] = [
+type TaskToolSchema = {
+  type: 'object'
+  properties: Record<string, Record<string, unknown>>
+  required?: readonly string[]
+  additionalProperties: false
+}
+
+type TaskToolSpec = {
+  name: string
+  description: string
+  inputSchema: TaskToolSchema
+  isDeferred: boolean
+}
+
+const TASK_TOOLS: readonly TaskToolSpec[] = [
   {
     name: 'task_add',
     description: [
@@ -401,14 +426,15 @@ const TOOLS: readonly ToolSpec[] = [
   {
     name: 'task_update',
     description:
-      'Set the status of one task in your task list, or remove it with status "removed". Returns the whole list.',
+      'Set the status of one task in your task list with status, give it a new title with title, or both in one call. Remove it with status "removed". The task keeps its id and its place. Returns the whole list.',
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'integer', description: 'The task id that task_list shows.' },
         status: { type: 'string', enum: [...STATUSES, REMOVED] },
+        title: { type: 'string', description: 'The new title, as one short imperative line.' },
       },
-      required: ['id', 'status'],
+      required: ['id'],
       additionalProperties: false,
     },
     isDeferred: false,
@@ -523,27 +549,42 @@ const TOOLS: readonly ToolSpec[] = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     isDeferred: false,
   },
-  {
-    name: 'finding_add',
-    description: [
-      'Record a finding outside your task: a bug, a risk or a gap that you noticed and do not fix now. The finding shows under Findings on the board, and the person files it in the tracker, hands it back to you as a prompt, or dismisses it.',
-      'The call does not block and changes nothing else. Do not act on the finding in this turn. Only the main loop can record a finding.',
-    ].join(' '),
-    inputSchema: {
-      type: 'object',
-      properties: {
-        text: {
-          type: 'string',
-          description:
-            'The finding as one line of at most 200 characters; it becomes the title of a tracker record when the person files it.',
-        },
-      },
-      required: ['text'],
-      additionalProperties: false,
-    },
-    isDeferred: false,
-  },
 ]
+
+const FINDING_TOOL: ToolSpec = {
+  name: 'finding_add',
+  description: [
+    'Record a finding outside your task: a bug, a risk or a gap that you noticed and do not fix now. The finding shows under Findings on the board, and the person files it in the tracker, hands it back to you as a prompt, or dismisses it.',
+    'The call does not block and changes nothing else. Do not act on the finding in this turn. Only the main loop can record a finding.',
+  ].join(' '),
+  inputSchema: {
+    type: 'object',
+    properties: {
+      text: {
+        type: 'string',
+        description:
+          'The finding as one line of at most 200 characters; it becomes the title of a tracker record when the person files it.',
+      },
+    },
+    required: ['text'],
+    additionalProperties: false,
+  },
+  isDeferred: false,
+}
+
+function fieldsSentence(schema: TaskToolSchema): string {
+  const required = new Set(schema.required ?? [])
+  const fields = Object.keys(schema.properties).map((key) =>
+    required.has(key) ? `${key} (required)` : key,
+  )
+  return fields.length === 0 ? 'It takes no fields.' : `It takes: ${fields.join(', ')}.`
+}
+
+function withFields(spec: TaskToolSpec): ToolSpec {
+  return { ...spec, description: `${spec.description} ${fieldsSentence(spec.inputSchema)}` }
+}
+
+const TOOLS: readonly ToolSpec[] = [...TASK_TOOLS.map(withFields), FINDING_TOOL]
 
 export const PROMPT_SECTION_ID = 'handily-board:tasks'
 
@@ -1839,6 +1880,14 @@ function addedLead(tasks: readonly BoardTask[], before: number | typeof LIST_END
   return `Added tasks ${ids}${placeText(before)}.`
 }
 
+async function personTaskOf(host: TaskHost, ids: readonly number[]): Promise<number | undefined> {
+  const list = await readList(host)
+  return ids.find((id) => {
+    const task = findTask(list, id)
+    return task !== undefined && isForPerson(task)
+  })
+}
+
 type AddOutcome = AddedMany | { refusal: string } | { missing: number; numbers: string }
 
 async function modelAdd(
@@ -1850,6 +1899,8 @@ async function modelAdd(
   if ('deny' in plan) return plan
   const refused = titlesRefusal(plan)
   if (refused !== undefined) return { deny: refused }
+  const asked = plan.before === LIST_END ? undefined : await personTaskOf(host, [plan.before])
+  if (asked !== undefined) return { deny: personPlaceRefusal(asked, 'task_add') }
   const unclaimed = await claim()
   if (unclaimed !== undefined) return { deny: `task_add refused: ${unclaimed}` }
   const { before } = plan
@@ -1878,38 +1929,81 @@ async function modelAdd(
   }
 }
 
-async function modelUpdate(host: TaskHost, id: unknown, status: unknown): Promise<ModelAnswer> {
-  if (typeof id !== 'number' || !Number.isInteger(id)) {
-    return { deny: 'task_update needs id: the integer task id that task_list shows.' }
+type UpdateInput = { id: unknown; status: unknown; title: unknown }
+
+type UpdateStatus = BoardStatus | typeof REMOVED
+
+type UpdatePlan = { id: number; status: UpdateStatus | undefined; title: string | undefined }
+
+function updateStatus(status: unknown): UpdateStatus | undefined | null {
+  if (status === undefined) return undefined
+  if (status === REMOVED || isStatus(status)) return status
+  return null
+}
+
+function updatePlan(input: UpdateInput): UpdatePlan | { deny: string } {
+  const { id, title } = input
+  if (typeof id !== 'number' || !Number.isInteger(id)) return { deny: UPDATE_ID_SHAPE }
+  if (input.status === undefined && title === undefined) return { deny: UPDATE_SHAPE }
+  const status = updateStatus(input.status)
+  if (status === null) {
+    return { deny: `task_update needs status: one of ${[...STATUSES, REMOVED].join(', ')}.` }
   }
-  if (status !== REMOVED && !isStatus(status)) {
-    return {
-      deny: `task_update needs status: one of ${[...STATUSES, REMOVED].join(', ')}.`,
-    }
-  }
-  const outcome = await host.edit<{ task: BoardTask | undefined; numbers: string }>((list) => {
+  if (title === undefined) return { id, status, title: undefined }
+  if (!isTitle(title)) return { deny: UPDATE_TITLE_SHAPE }
+  if (status === REMOVED) return { deny: UPDATE_REMOVE_SHAPE }
+  const refusal = titleRefusal(title.trim())
+  if (refusal !== undefined) return { deny: `task_update refused: ${refusal}` }
+  return { id, status, title: title.trim() }
+}
+
+function updatedList(list: BoardList, plan: UpdatePlan): BoardList {
+  if (plan.status === REMOVED) return removeTask(list, plan.id)
+  const titled = plan.title === undefined ? list : setTitle(list, plan.id, plan.title)
+  return plan.status === undefined ? titled : setStatus(titled, plan.id, plan.status)
+}
+
+function personChange(plan: UpdatePlan): PersonTaskChange {
+  if (plan.title !== undefined) return 'title'
+  return plan.status === REMOVED ? 'remove' : 'status'
+}
+
+function updatedLead(plan: UpdatePlan, task: BoardTask): string {
+  const number = String(plan.id)
+  const renamed = plan.title === undefined ? [] : [`Renamed task ${number}: ${taskText(task)}.`]
+  const status = plan.status === undefined ? [] : [`Task ${number} is now ${plan.status}.`]
+  return [...renamed, ...status].join(' ')
+}
+
+type UpdateOutcome = { task: BoardTask; updated: BoardTask } | { task: undefined; numbers: string }
+
+async function modelUpdate(host: TaskHost, input: UpdateInput): Promise<ModelAnswer> {
+  const plan = updatePlan(input)
+  if ('deny' in plan) return plan
+  const { id } = plan
+  const outcome = await host.edit<UpdateOutcome>((list) => {
     const task = findTask(list, id)
     if (!task) return { list, value: { task, numbers: numbersText(list.tasks) } }
-    if (isForPerson(task)) return { list, value: { task, numbers: '' } }
-    const next = status === REMOVED ? removeTask(list, id) : setStatus(list, id, status)
-    return { list: next, value: { task, numbers: '' } }
+    if (isForPerson(task)) return { list, value: { task, updated: task } }
+    const next = updatedList(list, plan)
+    return { list: next, value: { task, updated: findTask(next, id) ?? task } }
   })
-  const { task } = outcome
-  if (!task) {
+  if (outcome.task === undefined) {
     return {
       deny: `No task ${String(id)}. ${knownIds(outcome.numbers)} Call task_list to see them.`,
     }
   }
-  if (isForPerson(task)) return { deny: personOnlyRefusal(task, status === REMOVED) }
-  if (status === REMOVED) {
+  const { task, updated } = outcome
+  if (isForPerson(task)) return { deny: personOnlyRefusal(task, personChange(plan)) }
+  if (plan.status === REMOVED) {
     return {
       result: await listResult(host, `Removed task ${String(id)}.`),
       row: removedRow(task),
     }
   }
   return {
-    result: await listResult(host, `Task ${String(id)} is now ${status}.`),
-    row: statusRow(task, status),
+    result: await listResult(host, updatedLead(plan, updated)),
+    row: plan.status === undefined ? renamedRow(updated) : statusRow(updated, plan.status),
   }
 }
 
@@ -1925,12 +2019,8 @@ async function modelMove(host: TaskHost, id: unknown, before: unknown): Promise<
     }
   }
   if (id === before) return { deny: `task_move needs two different task ids, ${MOVE_EXAMPLE}.` }
-  const asked = findTask(await readList(host), id)
-  if (asked && isForPerson(asked)) {
-    return {
-      deny: `Task ${String(id)} is for the person; its place is the order in which you asked. task_move moves only your own tasks.`,
-    }
-  }
+  const asked = await personTaskOf(host, [id, before])
+  if (asked !== undefined) return { deny: personPlaceRefusal(asked, 'task_move') }
   const outcome = await host.edit<
     { missing: number; numbers: string } | { missing: undefined; task: BoardTask }
   >((list) => {
@@ -2491,7 +2581,15 @@ export const register: Register = (on, options) => {
     ),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_UPDATE }, async ($, e) =>
-    answerWithRow($, e.tool_use_id, await modelUpdate(modelHostOf($, e.agentId), e.id, e.status)),
+    answerWithRow(
+      $,
+      e.tool_use_id,
+      await modelUpdate(modelHostOf($, e.agentId), {
+        id: e.id,
+        status: e.status,
+        title: e.title,
+      }),
+    ),
   ).catch(($, e, next) => toolFailed($, e.tool, next.error))
   on('tool.call', { tool: TOOL_MOVE }, async ($, e) =>
     answerWithRow($, e.tool_use_id, await modelMove(modelHostOf($, e.agentId), e.id, e.before)),

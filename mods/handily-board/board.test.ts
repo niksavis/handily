@@ -187,6 +187,105 @@ describe('model tools and the prompt section', () => {
     )
     expect(await modelTool($, {})).toBe('Tasks (0 of 1 done)\n  1  pending      claude   "One"')
   })
+  test(
+    'task_update renames a task with title and keeps its id, status and place, alone or with a status',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      for (const title of ['Read', 'Write', 'Ship']) await $.tool.call({ tool: TOOL_ADD, title })
+      await $.tool.call({ tool: TOOL_UPDATE, id: 2, status: 'in_progress' })
+      const renamed = await $.tool.call({ tool: TOOL_UPDATE, id: 2, title: '  Write   the tests ' })
+      expect(renamed.result).toBe(
+        'Renamed task 2: "Write the tests".\n\nTasks (0 of 3 done)\n  1  pending      claude   "Read"\n  2  in progress  claude   "Write the tests"\n  3  pending      claude   "Ship"',
+      )
+      const both = await $.tool.call({
+        tool: TOOL_UPDATE,
+        id: 3,
+        title: 'Ship the release',
+        status: 'completed',
+      })
+      expect(String(both.result).split('\n')[0]).toBe(
+        'Renamed task 3: "Ship the release". Task 3 is now completed.',
+      )
+      expect(await modelTool($, {})).toBe(
+        'Tasks (1 of 3 done)\n  1  pending      claude   "Read"\n  2  in progress  claude   "Write the tests"\n  3  done         claude   "Ship the release"',
+      )
+    },
+  )
+
+  test(
+    'task_update refuses neither status nor title, a bad title and a title with the status removed by name, and changes nothing',
+    withWorkitems,
+    async ($, on) => {
+      world(on)
+      await start($)
+      await $.tool.call({ tool: TOOL_ADD, title: 'One' })
+      const before = await modelTool($, {})
+      const refusals: [Record<string, unknown>, string][] = [
+        [
+          { id: 1 },
+          'task_update needs status, title or both, for example {"id": 2, "status": "completed"} or {"id": 2, "title": "Write the tests"}.',
+        ],
+        [
+          { id: 1, title: 'x'.repeat(201) },
+          'task_update refused: the title has 201 characters. The limit is 200.',
+        ],
+        [
+          { id: 1, title: 'Line one\nLine two' },
+          'task_update refused: the title has a line break or a control character. Write it on one line.',
+        ],
+        [
+          { id: 1, title: '  ' },
+          'task_update needs title as a non-empty string, for example {"id": 2, "title": "Write the tests"}.',
+        ],
+        [
+          { id: 1, title: 'Two', status: 'removed' },
+          'task_update takes title or the status removed, not both.',
+        ],
+        [{ id: 7, title: 'Two' }, 'No task 7. The ids are 1. Call task_list to see them.'],
+      ]
+      for (const [input, deny] of refusals) {
+        expect((await $.tool.call({ tool: TOOL_UPDATE, ...input })).deny).toBe(deny)
+      }
+      expect(await modelTool($, {})).toBe(before)
+    },
+  )
+
+  test(
+    'each task tool description ends with one sentence that names the fields of its schema in order, the required ones marked',
+    withWorkitems,
+    async ($, on) => {
+      const seen = world(on)
+      await start($)
+      const names = [
+        'task_add',
+        'task_update',
+        'task_move',
+        'task_assign',
+        'task_close',
+        'task_list',
+      ]
+      for (const name of names) {
+        const schema = seen.schemas.get(name) ?? {}
+        const required = Array.isArray(schema.required) ? schema.required : []
+        const properties = Object.keys(schema.properties ?? {})
+        const fields = properties.map((key) => (required.includes(key) ? `${key} (required)` : key))
+        const sentence =
+          fields.length === 0 ? ' It takes no fields.' : ` It takes: ${fields.join(', ')}.`
+        const description = seen.descriptions.get(name) ?? ''
+        expect([name, description.slice(-sentence.length)]).toEqual([name, sentence])
+        expect([name, description.split('It takes').length]).toEqual([name, 2])
+      }
+      const update = seen.schemas.get('task_update') ?? {}
+      expect(Object.keys(update.properties ?? {})).toEqual(['id', 'status', 'title'])
+      expect(update.required).toEqual(['id'])
+      expect(seen.descriptions.get('task_update')?.slice(-40)).toBe(
+        ' It takes: id (required), status, title.',
+      )
+      expect(seen.descriptions.get('task_list')?.slice(-20)).toBe(' It takes no fields.')
+    },
+  )
 })
 
 describe('the plan instruction outside the system prompt', () => {
@@ -2863,7 +2962,7 @@ async function resultBlock($: Engine, surface: Surface, call: Called) {
 describe('each task tool call is one row in the transcript', () => {
   for (const surface of SURFACES) {
     test(
-      `add, update, move, list and remove draw one row each on ${surface}, with no task list`,
+      `add, update, rename, move, list and remove draw one row each on ${surface}, with no task list`,
       withToolIds,
       async ($, on) => {
         const seen = world(on)
@@ -2878,6 +2977,13 @@ describe('each task tool call is one row in the transcript', () => {
           await called($, seen, { tool: TOOL_UPDATE, id: 1, status: 'pending' }),
           await called($, seen, { tool: TOOL_MOVE, id: 3, before: 1 }),
           await called($, seen, { tool: TOOL_LIST }),
+          await called($, seen, { tool: TOOL_UPDATE, id: 2, title: 'Draw the tab mocks' }),
+          await called($, seen, {
+            tool: TOOL_UPDATE,
+            id: 2,
+            title: 'Draw the mocks',
+            status: 'completed',
+          }),
           await called($, seen, { tool: TOOL_UPDATE, id: 3, status: 'removed' }),
         ]
         const rows: unknown[] = []
@@ -2893,6 +2999,8 @@ describe('each task tool call is one row in the transcript', () => {
             'Task 1 ○ pending  Read the design doc',
             'Task 3 moved before 1  Drop the old pane',
             'Task list  0 of 3 done',
+            'Task 2 renamed  Draw the tab mocks',
+            'Task 2 ✓ done  Draw the mocks',
             'Task 3 removed  Drop the old pane',
           ].map((row) => `${marker}${row}`),
         )

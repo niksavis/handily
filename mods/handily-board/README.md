@@ -226,15 +226,15 @@ fix this. The cause is in Claude Code, not in the board or in herdr.
 
 ## What Claude gets
 
-| Tool          | Input                                                                  | Effect                                      |
-| ------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
-| `task_add`    | `title`, or `titles` for several, and an optional `before` task id     | Adds pending tasks                          |
-| `task_update` | `id`, and `status`: `pending`, `in_progress`, `completed` or `removed` | Sets the status, or removes the task        |
-| `task_move`   | `id` and `before`: two task ids                                        | Moves task `id` before task `before`        |
-| `task_assign` | `kind`: `do`, `answer` or `decide`, `title`, and `options` and `why`   | Assigns a task to you                       |
-| `task_close`  | `id`, `how`, and `note`, `said`, `answer` or `option`                  | Closes a task for you, and names who did it |
-| `task_list`   | none                                                                   | Returns the list                            |
-| `finding_add` | `text`: one line                                                       | Lists a finding for you                     |
+| Tool          | Input                                                                                    | Effect                                                  |
+| ------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `task_add`    | `title`, or `titles` for several, and an optional `before` task id                       | Adds pending tasks                                      |
+| `task_update` | `id`, and `status` (`pending`, `in_progress`, `completed` or `removed`), `title` or both | Sets the status, gives a new title, or removes the task |
+| `task_move`   | `id` and `before`: two task ids                                                          | Moves task `id` before task `before`                    |
+| `task_assign` | `kind`: `do`, `answer` or `decide`, `title`, and `options` and `why`                     | Assigns a task to you                                   |
+| `task_close`  | `id`, `how`, and `note`, `said`, `answer` or `option`                                    | Closes a task for you, and names who did it             |
+| `task_list`   | none                                                                                     | Returns the list                                        |
+| `finding_add` | `text`: one line                                                                         | Lists a finding for you                                 |
 
 - The mod registers the tools at `session.start`. The model calls them as
   `mcp__handily-board__<name>`. Each answer is the whole list, in the order of the work.
@@ -250,6 +250,17 @@ fix this. The cause is in Claude Code, not in the board or in herdr.
   replies write two consecutive ids as `1-2`, but the row lists them as `1, 2`.
 - `task_move` changes the order of the list. The task ids do not change. A move that names an
   unknown id, or the same id twice, is refused with the ids that exist and the correct form.
+- `task_update` with `title` gives a task a new title. The task keeps its id, its status and
+  its place. A call with `status` and `title` does both, and its transcript row shows the status
+  with the new title. A call with `title` only draws the row `Task 2 renamed  Write the tests`. A
+  call with neither is refused with the correct form. The new title has the rules of a
+  `task_add` title, and `title` with the status `removed` is refused.
+- Each task tool description ends with one sentence that names the fields of its input schema,
+  in order, with `(required)` after each required field, such as
+  `It takes: id (required), status, title.` One function builds the sentence from the schema, so
+  the two cannot differ. The six sentences add 288 characters to the descriptions, and the new
+  `task_update` text adds 99. That is about 97 tokens for each request, assumed at 4 characters
+  for each token.
 - A system prompt section (`handily-board:tasks`, scope `session`) tells the model to keep its
   plan in the list. The section is added only when the request offers `task_list`. The
   `task_add` description carries the same instruction, for an organization whose plugin
@@ -479,8 +490,10 @@ For you  ◆ 3 open
   only for `do`), when you say in the chat that you did, answered or decided it (`person_did`),
   or when the task is no longer needed (`not_needed`). It never closes an answer or decide task
   by its own choice. `task_update` refuses a task for you and names `task_close` with
-  `not_needed`, so a withdraw has one path. `task_move`, `/board edit` and `/board mv` leave
-  the task in place.
+  `not_needed`, so a withdraw has one path. A new title for a task for you is refused by name:
+  Claude closes the task with `not_needed` and assigns the new text with `task_assign`, so you
+  see the old task closed and the new one. `task_move`, `/board edit` and `/board mv` leave the
+  task in place. `task_add` and `task_move` refuse a task for you as `before`.
 - A `person_did` close copies your words into `said`. The mod checks them literally against
   your last prompts: at most 20, typed by you, kept in memory only, since the oldest open task for
   you. A close with words that you did not type is refused.

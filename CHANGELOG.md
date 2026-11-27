@@ -6,6 +6,20 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.39.0 - 2026-11-27
+
+task_update renames a plan task, and each task tool names its fields.
+
+### Changed
+
+- **`task_update` gives a plan task a new title, and each task tool names its fields.**
+  `task_update` takes `id`, and `status`, `title` or both. The task keeps its id, its status and
+  its place. Before, a call with a title was refused by Claude Code, because the tool did not
+  declare `title`. A new title for a task for the person is refused by name, and the refusal
+  names `task_close` with `not_needed` and a new `task_assign`. `task_add` and `task_move` refuse
+  a task for the person as `before`. Each task tool description now ends with the fields that the
+  tool takes, such as `It takes: id (required), status, title.` (handily-kwl9m1)
+
 ## handily-board 0.38.0 - 2026-11-27
 
 A do task shows a copy button for each command line.

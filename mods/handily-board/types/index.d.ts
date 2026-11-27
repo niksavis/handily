@@ -174,6 +174,7 @@ export type BoardCallRow =
   | { kind: 'addedMany'; ids: readonly number[]; before: number | null; titles: readonly string[] }
   | { kind: 'status'; id: number; status: BoardStatus; title: string }
   | { kind: 'removed'; id: number; title: string }
+  | { kind: 'renamed'; id: number; title: string }
   | { kind: 'moved'; id: number; before: number; title: string }
   | { kind: 'list'; done: number; total: number }
   | { kind: 'assigned'; id: number; taskKind: BoardTaskKind; title: string }

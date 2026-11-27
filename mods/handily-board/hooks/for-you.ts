@@ -800,12 +800,28 @@ export function asksParts(tasks: readonly BoardTask[]): ToastParts | undefined {
   ]
 }
 
-export function personOnlyRefusal(task: BoardTask, isRemove: boolean): string {
+export type PersonTaskChange = 'status' | 'remove' | 'title'
+
+export type PlaceTool = 'task_add' | 'task_move'
+
+const PLACE_REMEDY: Record<PlaceTool, string> = {
+  task_add: 'task_add puts new tasks only before your own tasks.',
+  task_move: 'task_move moves only your own tasks.',
+}
+
+export function personPlaceRefusal(id: number, tool: PlaceTool): string {
+  return `Task ${String(id)} is for the person; its place is the order in which you asked. ${PLACE_REMEDY[tool]}`
+}
+
+export function personOnlyRefusal(task: BoardTask, change: PersonTaskChange): string {
   const number = String(task.id)
   if (task.result) {
     return `Task ${number} for the person is already closed. The person removes closed tasks with /board clear.`
   }
-  if (isRemove) {
+  if (change === 'title') {
+    return `Task ${number} is a task for the person. To change it, close it with task_close how not_needed and assign the new text with task_assign.`
+  }
+  if (change === 'remove') {
     return `Task ${number} is for the person. To withdraw it, close it with task_close and how not_needed, with a note that says why.`
   }
   return `Task ${number} is for the person. Close it with task_close: how claude_did when you did it, person_did when the person says that they did it, or not_needed.`

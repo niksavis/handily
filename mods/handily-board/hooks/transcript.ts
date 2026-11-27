@@ -44,6 +44,10 @@ export function removedRow(task: BoardTask): BoardCallRow {
   return { kind: 'removed', id: task.id, title: paneTaskText(task) }
 }
 
+export function renamedRow(task: BoardTask): BoardCallRow {
+  return { kind: 'renamed', id: task.id, title: paneTaskText(task) }
+}
+
 export function movedRow(task: BoardTask, before: number): BoardCallRow {
   return { kind: 'moved', id: task.id, before, title: paneTaskText(task) }
 }
@@ -153,6 +157,8 @@ function headOf(row: BoardCallRow, signals: SignalLooks, room: number | undefine
       ]
     case 'removed':
       return [{ text: `${taskName(row.id)} removed` }]
+    case 'renamed':
+      return [{ text: `${taskName(row.id)} renamed` }]
     case 'moved':
       return [{ text: `${taskName(row.id)} moved before ${String(row.before)}` }]
     case 'list':
