@@ -54,42 +54,38 @@ release commit.
    Put it under the `###` heading of its category: `Added`, `Changed`, `Deprecated`, `Removed`,
    `Fixed` or `Security`. Then delete those fragment files.
    [changelog.d/README.md](../changelog.d/README.md) gives the fragment format.
-4. Run the gates:
-
-   ```sh
-   npm run check
-   ```
-
-5. Commit the version, the changelog and the deleted fragments in one release commit. The
-   subject starts with `chore(release)`, because the changelog gate refuses an edit of
-   `CHANGELOG.md` in any other commit. The subject names a record id. Put the version in the
-   body, because the hook refuses a dot in the subject.
-6. Create the tag on the release commit. The command validates the mod first. It refuses a
-   dirty tree, an existing tag, and a marketplace entry with a version that differs from
-   `plugin.json`.
+4. Commit the version, the changelog and the deleted fragments in one release commit, in a
+   lane of its own. The subject starts with `chore(release)`, because the changelog gate refuses
+   an edit of `CHANGELOG.md` in any other commit. The subject names a record id. Put the version
+   in the body, because the hook refuses a dot in the subject.
+5. Push the lane and open a pull request with the release commit as its head. Wait until
+   `basicly-gates` is green on that exact commit. This run replaces a local `npm run check`.
+   Then fast-forward `main` to the release commit and push `main`.
+6. Create the tag on the release commit, after it is on `origin/main`. The command validates the
+   mod first. It refuses a dirty tree, an existing tag, and a marketplace entry with a version
+   that differs from `plugin.json`.
 
    ```sh
    claude plugin tag mods/<name> --dry-run
    claude plugin tag mods/<name>
    ```
 
-7. Pin the mod at the new tag, and commit `.claude-plugin/marketplace.json` alone in the pin
-   commit. The command writes the tag and the commit of the tag into the entry of the mod. At
-   the first release of a mod, the command adds its entry. The subject names the record id of
-   the release.
+7. Push the tag alone. The tag has the format `<name>--v<version>`, such as
+   `handily-board--v0.2.0`. Push each tag in its own `git push`. GitHub starts no workflow when
+   one push carries more than three tags. The push starts `release.yml`.
+
+   ```sh
+   git push origin refs/tags/<name>--v<version>
+   ```
+
+8. Pin the mod at the new tag in a second lane, and commit `.claude-plugin/marketplace.json`
+   alone in the pin commit. The command writes the tag and the commit of the tag into the entry
+   of the mod. At the first release of a mod, the command adds its entry. The subject names the
+   record id of the release. Deliver the pin commit through its own pull request with a green
+   `basicly-gates` run, then fast-forward and push `main`.
 
    ```sh
    npm run marketplace -- --pin <name>
-   ```
-
-8. Push the tag that the command created, then `main`. The tag has the format
-   `<name>--v<version>`, such as `handily-board--v0.2.0`. Push the tag first, so that the tag is
-   on GitHub before the marketplace file on `main` names it. Push each tag in its own
-   `git push`. GitHub starts no workflow when one push carries more than three tags.
-
-   ```sh
-   git push origin <name>--v<version>
-   git push origin main
    ```
 
 ## Measure the diagram hint
