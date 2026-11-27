@@ -739,7 +739,7 @@ for (const surface of SURFACES) {
         await sessionScene($, seen, surface)
         const ui = await mountTab($, surface, 'dock', 41)
         const lines = body(await screen(ui, 41))
-        expect(lines).toContain('gate 5 ▮▯▮■▮')
+        expect(lines).toContain('gate 5 ▮▯▮╳▮')
         expect(lines).toContain('3 allowed · 1 asked · 1 denied')
         expect(lines).toContain('f: file 1  s: shell 3  o: other 1')
         const counts = await coloured(ui, 'session-verdicts')

@@ -50,7 +50,7 @@ type CellLook = { mark: string; color: ThemeKey }
 const CELL_LOOKS: Readonly<Record<BoardCheckDecision, CellLook>> = {
   allow: { mark: '▮', color: 'success' },
   ask: { mark: '▯', color: 'permission' },
-  deny: { mark: '■', color: DENIED_COLOR },
+  deny: { mark: '╳', color: DENIED_COLOR },
 }
 
 const VERDICT_WORDS = {

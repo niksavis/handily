@@ -839,7 +839,7 @@ Session  ctx ▰▰▰▰▰▰▰▱▱▱ 71% · $9.33
     [ last 3 checks ]
 opus-5-5 · high · accept edits
 turn 3m · 2 edits · 1 error · +$0.31
-gate ▮▮■ 1 denied
+gate ▮▮╳ 1 denied
 ```
 
 On the terminal from 41 columns the details open under the context row, indented by 2:
@@ -859,7 +859,7 @@ On the terminal from 41 columns the details open under the context row, indented
   $9.33 · 5h ▰▱▱▱▱ 31% · 7d ▱▱▱▱▱ 13%
   opus-5-5 · high · accept edits
   turn 3m · 2 edits · 1 error · +$0.31
-  gate ▮▮■ 1 denied
+  gate ▮▮╳ 1 denied
 ─────────────────────────────────────────
 ```
 
@@ -1627,7 +1627,7 @@ setting of its own. The captures in this file show the plain marks.
   open pane then draws again.
 - Each icon takes the place of one mark, so every line keeps its width.
 - These marks are the same in both sets: the running call mark `▸`, the progress bar `▰ ▱`, the
-  gauges, the gate strip cells `▮ ▯ ■`, the lane cells `━ ·`, the rules `─` and the row bullet
+  gauges, the gate strip cells `▮ ▯ ╳`, the lane cells `━ ·`, the rules `─` and the row bullet
   `●`.
 
 ### Palette

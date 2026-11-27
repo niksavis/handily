@@ -36,11 +36,6 @@ const LITERAL_FREE_MODS = [
 ]
 const LITERAL_EXCEPTIONS = [
   {
-    file: 'mods/handily-board/hooks/checks.ts',
-    glyph: '■',
-    why: 'the denied cell of the gate strip, a verdict cell beside the allowed and asked cells',
-  },
-  {
     file: 'mods/handily-reply-view/hooks/flowchart.ts',
     glyph: '▶',
     why: 'the arrow head of a flowchart edge',

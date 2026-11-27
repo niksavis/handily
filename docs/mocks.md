@@ -6181,6 +6181,8 @@ reader get B8 and `copy as text`.
 10. **A denied check at body 41 shows only as `■`, and `▮`/`■` differ only in width.** Recommend
     that when a denial is among the last 20, the family counts give way to `1 denied` in `error`.
     The row would read `gate ▯▯▮▯▯▯▮▯▯▯▯▮▯▯▯▮▯▯▮■ 1 denied`, which is 34 of 37 columns.
+    Decided 2026-11-27 (handily-d3nkj8): the strip draws a denied check as `╳` (U+2573) in
+    `error`, so the shape differs from `▮`. The older mocks in this file still show `■`.
 11. **The upstream name: here (C) or in handily-dxnxc?** Recommend **C**, because C already parses
     the same status call. dxnxc keeps the @path reveal and the to-prompt button.
 

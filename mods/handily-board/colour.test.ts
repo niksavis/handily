@@ -727,8 +727,8 @@ describe(GATE_CRITERION, () => {
       for (const surface of SURFACES) {
         const ui = await mountTab($, surface, 'dock', 41)
         const gate = await coloured(ui, 'session-gate')
-        expect(gate.map((part) => part.text).join('')).toBe('gate 5 ▯▮▮▮■')
-        expect(colourOf(gate, '■')).toBe('error')
+        expect(gate.map((part) => part.text).join('')).toBe('gate 5 ▯▮▮▮╳')
+        expect(colourOf(gate, '╳')).toBe('error')
         const counts = await coloured(ui, 'session-verdicts')
         expect(counts.map((part) => part.text).join('')).toBe('3 allowed · 1 asked · 1 denied')
         expect(colourOf(counts, '1 denied')).toBe('error')
