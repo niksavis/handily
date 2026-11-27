@@ -99,10 +99,6 @@ export function withScriptSteps(activity: BoardActivity, steps: number): BoardAc
   return steps === 0 ? activity : { ...activity, sincePlan: activity.sincePlan + steps }
 }
 
-export function withBoardUse(activity: BoardActivity): BoardActivity {
-  return activity.usesBoard === true ? activity : { ...activity, usesBoard: true }
-}
-
 function clockOf(
   clock: BoardTaskClock | undefined,
   isRunning: boolean,
@@ -149,7 +145,7 @@ export function planLag(activity: BoardActivity): number | undefined {
 }
 
 export function isNoteDue(activity: BoardActivity): boolean {
-  if (activity.usesBoard !== true || planLag(activity) === undefined) return false
+  if (planLag(activity) === undefined) return false
   return activity.noteAt === null || activity.sincePlan - activity.noteAt >= PLAN_WARNING_CALLS
 }
 

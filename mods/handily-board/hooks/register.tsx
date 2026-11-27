@@ -40,7 +40,6 @@ import {
   withClocks,
   withMainCall,
   withScriptSteps,
-  withBoardUse,
   isScriptCall,
   RESUME_NOTE,
   withPlanUpdate,
@@ -983,16 +982,6 @@ async function noteScriptSteps(
     await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withScriptSteps(current, steps))
   } catch (error) {
     $.ui.log(`handily-board: the script steps were not counted: ${String(error)}`, { to: 'debug' })
-  }
-}
-
-async function noteBoardUse($: EngineInterface): Promise<void> {
-  const { value: activity = EMPTY_ACTIVITY } = await $.state.get(ACTIVITY)
-  if (activity.usesBoard === true) return
-  try {
-    await update($, ACTIVITY, (current = EMPTY_ACTIVITY) => withBoardUse(current))
-  } catch (error) {
-    $.ui.log(`handily-board: the board use was not kept: ${String(error)}`, { to: 'debug' })
   }
 }
 
@@ -2363,7 +2352,6 @@ export const register: Register = (on, options) => {
     if (isTaskTool(e.tool)) {
       if (e.agentId !== undefined) heard(pulses, e.agentId, await $.clock.now())
       const answer = await next(e)
-      if (e.agentId === undefined && answer.deny === undefined) await noteBoardUse($)
       if (e.agentId === undefined && isPlanTool(e.tool) && answer.deny === undefined) {
         await notePlanChange($)
       }

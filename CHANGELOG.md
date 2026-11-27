@@ -6,6 +6,19 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.35.1 - 2026-11-27
+
+The plan note reaches a session that never called a board tool.
+
+### Fixed
+
+- **handily-board: the plan note reaches a session that never called a board tool.** After 20
+  tool calls with an empty task list, the next prompt of the person carries the note that asks
+  Claude to add its plan with `task_add`. Before, the note went out only after the session had
+  called a board tool once, so a session that never started a plan never got it. On local
+  transcripts from 2026-11-20 to 2026-11-27, 0 of 55 sessions without the note added a plan.
+  (handily-hxwjbf)
+
 ## handily-board 0.35.0 - 2026-11-27
 
 The keys 6 to 9 press the recommended task buttons, and the README names why a mouse click can miss.

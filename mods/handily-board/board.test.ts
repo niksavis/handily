@@ -2616,7 +2616,7 @@ describe('the plan note at prompt submit', () => {
   )
 
   test(
-    'no plan note goes out in a session that has not called a board tool',
+    'a session that has not called a board tool gets the empty list note',
     withWorkitems,
     async ($, on) => {
       world(on, { hasOwnPromptHook: true })
@@ -2624,7 +2624,11 @@ describe('the plan note at prompt submit', () => {
       await start($)
       await readsOf($, 45)
       await submit($, 'go on')
-      expect(rows.map((row) => row.context)).toEqual([[]])
+      expect(rows.map((row) => row.context)).toEqual([
+        [
+          '[handily-board] The person sees an empty task list on the board, after 45 tool calls of yours. Add your plan with task_add, one task for each step, and keep it current with task_update: in_progress when you start a task, completed when it is done.',
+        ],
+      ])
     },
   )
 

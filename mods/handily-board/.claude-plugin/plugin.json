@@ -1,6 +1,6 @@
 {
   "name": "handily-board",
-  "version": "0.35.0",
+  "version": "0.35.1",
   "description": "A board with two panes, one open at a time: this session shows the task list that Claude and you share, and this machine reads a session store folder and shows its open owner asks and every session in it. /board opens it, four model tools keep the list, and a fifth records findings that you file, fix or dismiss.",
   "author": {
     "name": "niksavis"
