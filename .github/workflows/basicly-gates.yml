@@ -112,6 +112,8 @@ jobs:
           - engine: newest
             package: "@anthropic-ai/claude-code@latest"
             shards: 6
+        exclude:
+          - engine: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && 'newest' || 'none' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -122,17 +124,13 @@ jobs:
           node-version: "24"
           cache: npm
       - name: Install dev dependencies
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         run: npm ci --no-fund --no-audit
       - name: Install the Claude Code CLI
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         run: npm install -g "${{ matrix.package }}"
       - name: Print the resolved Claude Code version
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         shell: bash
         run: claude --version | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the mod tests of this shard
-        if: github.event_name != 'schedule' || matrix.engine == 'newest'
         run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/${{ matrix.shards }}
 
   mods-newest:
