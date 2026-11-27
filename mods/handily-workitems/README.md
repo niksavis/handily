@@ -401,8 +401,10 @@ handily-egnvhi). So all sessions of a user share one run for each ledger state.
   again, as before. A ledger folder that holds only a `redirect` file, as in a git worktree,
   does not change when the ledger changes, so the mark alone would keep an old read.
 - Otherwise the session takes the lock, runs the command once, writes the cache and drops the
-  lock. A session that finds the lock held checks the cache again every 250 ms, for up to 30 s.
-  A lock that is 30 s old or older is stale, and the next session takes it over.
+  lock. A session that finds the lock held checks the cache again every 250 ms, for up to 3 s.
+  When the lock is still held after 3 s and no new cache came, the session runs the command
+  itself, so a wait never holds a hook near its 10 s limit.
+- A lock that is 30 s old or older is stale, and the next session takes it over.
 - The mod API has no rename and no exclusive create. So the mod writes the cache in one write
   with a SHA-256 of the output, and a session that reads a part-written file reads no cache.
   The mod takes the lock with a write and a read back of its own token. When two sessions take

@@ -19,7 +19,7 @@ import { resolveProgram, sha256Hex, type Approvals } from './hooks/approval'
 import { isInside, mayBeInside } from './hooks/config'
 import { VAULT_READ_MS } from './hooks/readers/basicly'
 import { createReaders } from './hooks/readers/index'
-import { LOCK_RECHECK_MS, LOCK_STALE_MS, sharedFolderOf } from './hooks/shared'
+import { LOCK_RECHECK_MS, LOCK_STALE_MS, LOCK_WAIT_MS, sharedFolderOf } from './hooks/shared'
 import { createProvider, type Provider, type ProviderHost } from './hooks/snapshot'
 import { advanceUntil, settleUntil } from './testing'
 import type {
@@ -2531,6 +2531,30 @@ describe('one tracker read per ledger change across sessions', () => {
     expect(lastItems(second)).toEqual(SHARED_KEYS)
   })
 
+  test('a held lock and no cache after 3 s make the waiter run the command itself', async (_$, on) => {
+    const world = sharedWorld(on)
+    const first = sharedSession(world)
+    const second = sharedSession(world)
+    heldRun(world)
+    const stuck = first.provider.refresh()
+    await sharedSettle(world, () => world.itemRuns === 1, 'the first session to run the command')
+    const startedAt = world.clock.now()
+    const secondRead = second.provider.refresh()
+    await sharedSettle(world, () => world.waiting === 1, 'the second session to wait')
+    while (world.clock.now() < startedAt + LOCK_WAIT_MS - LOCK_RECHECK_MS) {
+      await world.clock.advance(LOCK_RECHECK_MS)
+      await sharedSettle(world, () => world.waiting === 1, 'the second session to wait again')
+    }
+    expect(world.itemRuns).toBe(1)
+    await world.clock.advance(LOCK_RECHECK_MS)
+    await secondRead
+    expect(LOCK_WAIT_MS).toBe(3_000)
+    expect(world.itemRuns).toBe(2)
+    expect(lastItems(second)).toEqual(SHARED_KEYS)
+    expect(first.published).toEqual([])
+    expect(stuck).toBeInstanceOf(Promise)
+  })
+
   test('a lock older than 30 s is taken over and the command runs', async (_$, on) => {
     const world = sharedWorld(on)
     const first = sharedSession(world)
@@ -2538,7 +2562,7 @@ describe('one tracker read per ledger change across sessions', () => {
     heldRun(world)
     const stuck = first.provider.refresh()
     await sharedSettle(world, () => world.itemRuns === 1, 'the first session to run the command')
-    await world.clock.advance(LOCK_STALE_MS / 2)
+    await world.clock.advance(LOCK_STALE_MS - LOCK_WAIT_MS / 2)
     const secondRead = second.provider.refresh()
     await sharedSettle(world, () => world.waiting === 1, 'the second session to wait')
     while (world.clock.now() < 1_000 + LOCK_STALE_MS - LOCK_RECHECK_MS) {

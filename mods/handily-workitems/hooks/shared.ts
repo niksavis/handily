@@ -3,7 +3,7 @@ import { sha256Hex } from './approval'
 export const SHARED_READ_SCHEMA = 'handily.workitems.shared-read.v1'
 export const SHARED_LOCK_SCHEMA = 'handily.workitems.shared-lock.v1'
 export const LOCK_STALE_MS = 30_000
-export const LOCK_WAIT_MS = 30_000
+export const LOCK_WAIT_MS = 3_000
 export const LOCK_RECHECK_MS = 250
 export const SHARED_FOLDER = 'handily/workitems'
 const MAX_SHARED_BYTES = 4 * 1024 * 1024
@@ -191,12 +191,12 @@ export function createSharedRead(host: SharedHost): SharedRead {
       const cached = await cachedOutput(host, paths.cache, request)
       if (cached.found) return cached.output
       const now = await host.now()
-      const isLate = now >= deadline
-      if (isLate || lockState(await lockFile(host, paths.lock), now) === 'free') {
+      if (now >= deadline) return request.run()
+      if (lockState(await lockFile(host, paths.lock), now) === 'free') {
         const token = host.token()
         const taken = await takeLock(host, paths.lock, token, now)
         if (taken === 'mine') return runHolding(host, paths, token, request)
-        if (taken === 'refused' || isLate) return request.run()
+        if (taken === 'refused') return request.run()
       }
       await host.sleep(LOCK_RECHECK_MS)
     }
