@@ -18,11 +18,12 @@ import { delimiter, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, test } from 'node:test'
 import { environmentWithoutGit } from './git-env.mjs'
+import { stagedTests } from './staged.mjs'
 
 const repoRoot = join(import.meta.dirname, '..')
 
 function copyGateScripts(root) {
-  for (const script of ['mods.mjs', 'scratch.mjs']) {
+  for (const script of ['mods.mjs', 'scratch.mjs', 'staged.mjs']) {
     cpSync(join(repoRoot, 'scripts', script), join(root, 'scripts', script))
   }
 }
@@ -895,8 +896,8 @@ test('test fails by name when claude plugin test prints no test time', () => {
 const quickOutput = '\n(pass) quick [1.00ms]\n'
 const shardCount = 3
 
-function makeShardedRepo() {
-  const repo = makeTimedRepo()
+function makeShardedRepo(options = {}) {
+  const repo = makeTimedRepo(timedTestSource, options)
   const second = join(repo.root, 'mods', 'second')
   mkdirSync(join(second, '.claude-plugin'), { recursive: true })
   writeFileSync(join(second, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'second' }))
@@ -1072,6 +1073,184 @@ test('test with no --file runs every test file of every mod', () => {
     'timed/other.test.ts',
     'timed/timed.test.ts',
   ])
+})
+
+function makeStagedTree(files) {
+  const tree = mkdtempSync(join(tmpdir(), 'handily-staged-'))
+  after(() => rmSync(tree, { recursive: true, force: true }))
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(tree, path, '..'), { recursive: true })
+    writeFileSync(join(tree, path), text)
+  }
+  return tree
+}
+
+const stagedTreeFiles = {
+  'scripts/shared.mjs': 'export const shared = 1\n',
+  'scripts/importer.test.mjs': "import { shared } from './shared.mjs'\n",
+  'scripts/tool.mjs': 'export const tool = 1\n',
+  'scripts/tool.test.mjs': "const tool = join(root, 'scripts', 'tool.mjs')\n",
+  'scripts/alone.test.mjs': "import { test } from 'node:test'\n",
+  'mods/alpha/hooks/register.ts': 'export const alpha = 1\n',
+  'mods/alpha/alpha.test.ts': "import { alpha } from './hooks/register'\n",
+  'mods/alpha/hooks/inner.test.ts': "import { alpha } from './register'\n",
+  'mods/beta/hooks/register.ts': "import { shared } from '../../../scripts/shared.mjs'\n",
+  'mods/beta/beta.test.ts': "import { beta } from './hooks/register'\n",
+  'mods/gamma/hooks/register.ts': 'export const gamma = 1\n',
+  'mods/gamma/gamma.test.ts': "import { gamma } from './hooks/register'\n",
+}
+
+function selectStaged(paths) {
+  const tree = makeStagedTree(stagedTreeFiles)
+  const mods = ['alpha', 'beta', 'gamma'].map((name) => ({ name, dir: join(tree, 'mods', name) }))
+  const testFiles = {
+    alpha: ['alpha.test.ts', 'hooks/inner.test.ts'],
+    beta: ['beta.test.ts'],
+    gamma: ['gamma.test.ts'],
+  }
+  const { filesByMod, scriptTests } = stagedTests({
+    root: tree,
+    mods,
+    paths,
+    testFilesOf: (mod) => testFiles[mod.name],
+  })
+  return {
+    mods: Object.fromEntries([...filesByMod].map(([name, files]) => [name, [...files].sort()])),
+    scriptTests,
+  }
+}
+
+test('stagedTests maps a staged file of one mod to every test file of that mod and no other test', () => {
+  assert.deepEqual(selectStaged(['mods/alpha/hooks/register.ts']), {
+    mods: { alpha: ['alpha.test.ts', 'hooks/inner.test.ts'] },
+    scriptTests: [],
+  })
+})
+
+test('stagedTests maps a staged shared module under scripts to the scripts tests and the mods that import it', () => {
+  assert.deepEqual(selectStaged(['scripts/shared.mjs']), {
+    mods: { beta: ['beta.test.ts'] },
+    scriptTests: ['scripts/importer.test.mjs'],
+  })
+})
+
+test('stagedTests maps a staged script to the scripts test that names its file and to the staged scripts test itself', () => {
+  assert.deepEqual(selectStaged(['scripts/tool.mjs', 'scripts/alone.test.mjs']), {
+    mods: {},
+    scriptTests: ['scripts/alone.test.mjs', 'scripts/tool.test.mjs'],
+  })
+})
+
+test('stagedTests maps a docs-only commit to no test', () => {
+  assert.deepEqual(
+    selectStaged(['mods/alpha/README.md', 'changelog.d/handily-x1.added.md', 'docs/design.md']),
+    { mods: {}, scriptTests: [] },
+  )
+})
+
+const stagedScriptTest =
+  "import { test } from 'node:test'\ntest('the staged scripts test runs', () => {})\n"
+
+function makeStagedRepo() {
+  const repo = makeShardedRepo({ withGit: true })
+  writeFileSync(join(repo.root, 'scripts', 'staged-only.test.mjs'), stagedScriptTest)
+  return repo
+}
+
+function runStagedGate(repo, args = []) {
+  const bin = makeTimedClaude([quickOutput])
+  const env = { ...environmentWithoutGit, PATH: `${bin}${delimiter}${process.env.PATH}` }
+  delete env.GITHUB_ACTIONS
+  delete env.NODE_TEST_CONTEXT
+  const result = spawnSync(
+    process.execPath,
+    [join(repo.root, 'scripts', 'mods.mjs'), 'test', '--staged', ...args],
+    { cwd: repo.root, encoding: 'utf8', env },
+  )
+  return { result, calls: readCalls(bin) }
+}
+
+test('test --staged runs only the test files of the mod whose file is staged and no scripts test', () => {
+  const repo = makeStagedRepo()
+  writeFileSync(join(repo.root, 'mods', 'second', 'helper.ts'), 'export const helper = 1\n')
+  git(repo.root, 'add', 'mods/second/helper.ts')
+  const { result, calls } = runStagedGate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(calls.flatMap(callKeys), ['second/second.test.ts'])
+  assert.match(
+    result.stdout,
+    /^test: --staged runs 1 test file\(s\) of 1 mod\(s\) and 0 scripts test file\(s\) for 1 staged path\(s\); npm test runs every test file$/m,
+  )
+  assert.doesNotMatch(result.stdout, /passes|the staged scripts test runs/)
+})
+
+test('test --staged runs a staged scripts test and no mod test', () => {
+  const repo = makeStagedRepo()
+  git(repo.root, 'add', 'scripts/staged-only.test.mjs')
+  const { result, calls } = runStagedGate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(calls, [])
+  assert.match(result.stdout, /the staged scripts test runs/)
+  assert.doesNotMatch(result.stdout, /passes/)
+})
+
+test('test --staged runs no test when only documentation files are staged', () => {
+  const repo = makeStagedRepo()
+  writeFileSync(join(repo.root, 'mods', 'timed', 'README.md'), '# timed\n')
+  mkdirSync(join(repo.root, 'changelog.d'))
+  writeFileSync(join(repo.root, 'changelog.d', 'handily-x1.added.md'), '- x\n')
+  git(repo.root, 'add', 'mods/timed/README.md', 'changelog.d/handily-x1.added.md')
+  const { result, calls } = runStagedGate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(calls, [])
+  assert.match(
+    result.stdout,
+    /^test: --staged runs 0 test file\(s\) of 0 mod\(s\) and 0 scripts test file\(s\) for 2 staged path\(s\); npm test runs every test file$/m,
+  )
+  assert.doesNotMatch(result.stdout, /passes|the staged scripts test runs/)
+})
+
+test('test --staged runs every test file when nothing is staged and says so', () => {
+  const repo = makeStagedRepo()
+  const { result, calls } = runStagedGate(repo)
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.deepEqual(calls.flatMap(callKeys).toSorted(), [
+    'second/second.test.ts',
+    'timed/hooks/inner.test.ts',
+    'timed/other.test.ts',
+    'timed/timed.test.ts',
+  ])
+  assert.match(result.stdout, /^test: --staged finds no staged path, so it runs every test file$/m)
+  assert.match(result.stdout, /passes/)
+})
+
+test('test --staged fails by name when git cannot read the staged paths', () => {
+  const repo = makeShardedRepo()
+  const { result, calls } = runStagedGate(repo)
+  assert.equal(result.status, 1, result.stdout + result.stderr)
+  assert.deepEqual(calls, [])
+  assert.match(
+    result.stderr,
+    /^FAIL test: --staged cannot read the staged paths with git diff --cached --name-only \(.+\); run it in a git work tree, or run node scripts\/mods\.mjs test$/m,
+  )
+})
+
+test('test refuses --staged together with --file or --shard and names the commands', () => {
+  const repo = makeStagedRepo()
+  for (const args of [
+    ['--file', 'mods/timed/other.test.ts'],
+    ['--shard', '1/3'],
+  ]) {
+    const { result, calls } = runStagedGate(repo, args)
+    assert.equal(result.status, 2, result.stdout + result.stderr)
+    assert.ok(
+      result.stderr.includes(
+        'test: --staged goes with no --file or --shard; run node scripts/mods.mjs test --staged alone',
+      ),
+      result.stderr,
+    )
+    assert.deepEqual(calls, [])
+  }
 })
 
 const testTimesFix = 'node scripts/mods.mjs test-times <log>...'

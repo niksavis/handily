@@ -1999,7 +1999,7 @@ What is in place (handily-fwkt.1):
 | Type check | `tsc` 6.0.3 per mod | `mods-typecheck` |
 | Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` |
 | Format | Prettier 3.9 | `prettier` (with a fix command) |
-| Test | `claude plugin test`; a mod with no test fails | `mods-test` |
+| Test | `claude plugin test`; a mod with no test fails | `mods-test` (full mode and CI), `mods-test-staged` (pre-commit hook, the tests of the staged files) |
 
 Measured facts behind these choices:
 

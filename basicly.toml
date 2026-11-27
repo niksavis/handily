@@ -114,7 +114,13 @@ inputs = ["mods/**", "probes/**", "scripts/**", "eslint.config.mjs", ".prettierr
 [[verify.checks]]
 name = "mods-test"
 command = ["node", "scripts/mods.mjs", "test"]
-modes = ["fast", "full"]
+modes = ["full"]
+inputs = ["mods/**", "probes/**", "scripts/**"]
+
+[[verify.checks]]
+name = "mods-test-staged"
+command = ["node", "scripts/mods.mjs", "test", "--staged"]
+modes = ["fast"]
 inputs = ["mods/**", "probes/**", "scripts/**"]
 
 # Loop gate/checkpoint policy: which gates block advancement and the rework cap.

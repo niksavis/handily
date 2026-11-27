@@ -16,6 +16,7 @@ import { cpus, loadavg, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createScratchFolder, removeScratchFolder } from './scratch.mjs'
+import { stagedTests } from './staged.mjs'
 
 const root = join(import.meta.dirname, '..')
 const gatedFolders = [
@@ -1403,20 +1404,66 @@ function runModTests(mod, files) {
   ).result
 }
 
-function runScriptTests() {
-  run('scripts: node --test', process.execPath, ['--test', 'scripts/*.test.mjs'])
+function runScriptTests(files = ['scripts/*.test.mjs']) {
+  run('scripts: node --test', process.execPath, ['--test', ...files])
+}
+
+const stagedPathsCommand = ['diff', '--cached', '--name-only', '--no-renames', '-z']
+
+function readStagedPaths() {
+  const result = spawnSync('git', stagedPathsCommand, { cwd: root, encoding: 'utf8' })
+  if (result.error !== undefined || result.status !== 0) {
+    const detail =
+      result.error?.message ??
+      (result.stderr.trim().split('\n')[0] || `exit ${String(result.status)}`)
+    fail(
+      `test: --staged cannot read the staged paths with git diff --cached --name-only (${detail}); run it in a git work tree, or run node scripts/mods.mjs test`,
+    )
+    return undefined
+  }
+  return result.stdout.split('\0').filter(Boolean)
+}
+
+function stagedSelection(mods) {
+  const paths = readStagedPaths()
+  if (paths === undefined) return undefined
+  if (paths.length === 0) {
+    console.log('test: --staged finds no staged path, so it runs every test file')
+    return { filesByMod: undefined, scriptTests: undefined }
+  }
+  const selection = stagedTests({
+    root,
+    mods,
+    paths,
+    testFilesOf: listTestFiles,
+    isSkipped: isGeneratedTypesPath,
+  })
+  const total = [...selection.filesByMod.values()].reduce((sum, files) => sum + files.size, 0)
+  console.log(
+    `test: --staged runs ${total} test file(s) of ${selection.filesByMod.size} mod(s) and ${selection.scriptTests.length} scripts test file(s) for ${paths.length} staged path(s); npm test runs every test file`,
+  )
+  return selection
 }
 
 function test(mods, { values = {} } = {}) {
+  if (values.staged === true && (values.file !== undefined || values.shard !== undefined)) {
+    console.error(
+      'test: --staged goes with no --file or --shard; run node scripts/mods.mjs test --staged alone',
+    )
+    process.exit(2)
+  }
   if (values.file !== undefined && values.shard !== undefined) {
     console.error(
       'test: --file and --shard do not go together; run node scripts/mods.mjs test --file <path> alone, or node scripts/mods.mjs test --shard <index>/<count>',
     )
     process.exit(2)
   }
+  const staged = values.staged === true ? stagedSelection(mods) : undefined
+  if (values.staged === true && staged === undefined) return
   const shard = values.shard === undefined ? undefined : readShard(values.shard)
   const named = values.file === undefined ? undefined : namedFiles(mods, values.file)
-  const filesByMod = named ?? (shard === undefined ? undefined : shardFiles(mods, shard))
+  const filesByMod =
+    staged?.filesByMod ?? named ?? (shard === undefined ? undefined : shardFiles(mods, shard))
   if (named !== undefined) {
     const total = [...named.values()].reduce((sum, files) => sum + files.size, 0)
     console.log(
@@ -1448,6 +1495,9 @@ function test(mods, { values = {} } = {}) {
   const ranAgain = timesByMod.flatMap(({ mod, times }) => checkTestTimes(mod, times, slowness))
   if (!isCiRunner) countRunsAlone(ranAgain)
   if (filesByMod === undefined) runScriptTests()
+  else if (staged?.scriptTests !== undefined && staged.scriptTests.length > 0) {
+    runScriptTests(staged.scriptTests)
+  }
 }
 
 const tasks = {
@@ -1457,7 +1507,7 @@ const tasks = {
   lint,
   validate,
   test,
-  'test-scripts': runScriptTests,
+  'test-scripts': () => runScriptTests(),
   'test-times': writeTestTimes,
   check: (mods) => {
     validate(mods)
@@ -1469,9 +1519,13 @@ const tasks = {
 
 const taskArguments = {
   marketplace: { pin: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } },
-  test: { shard: { type: 'string' }, file: { type: 'string', multiple: true } },
+  test: {
+    shard: { type: 'string' },
+    file: { type: 'string', multiple: true },
+    staged: { type: 'boolean' },
+  },
 }
-const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>...], or ${testTimesCommand}`
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>... | --staged], or ${testTimesCommand}`
 
 function readTaskArguments(name, args) {
   try {
