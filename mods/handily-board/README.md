@@ -581,6 +581,13 @@ For you  ◆ 3 open
 - When you open the task, each line draws dim, cut to the width with `…`, with `copy` at the
   right. A press copies the full line and shows the toast `Copied` with
   `type ! in the prompt, then paste`. When the copy fails, the toast `Not copied` says why.
+  When the copy fails with an error, the toast says `the transcript shows why`, and the
+  transcript holds the error.
+- Each line draws the same characters that `copy` puts on the clipboard. So a Windows path such
+  as `C:\Users\me\x.ps1` shows each backslash once. Only a control character shows as its
+  code, such as `\u001b`, so that an escape sequence cannot change the terminal.
+- Only an open task draws the lines and the `copy` buttons. A task that is closed or withdrawn
+  draws none when you open it.
   `task_list` and `/board list` show the full lines on the row of an open task. Docked at 41
   columns:
 

@@ -4,6 +4,7 @@ import { NEEDS_YOU_AFTER_MS } from './hooks/agents'
 import { statusLineSetting } from './hooks/attention'
 import type { TaskHost } from './hooks/commands'
 import { type PlanHost, addPlanAsTasks } from './hooks/plan'
+import type { BoardTask } from './types'
 import {
   expectEngineRow,
   ROOT,
@@ -2775,8 +2776,116 @@ describe('tasks that Claude assigns to the person (handily-9uj3n.8)', () => {
         await narrow.unmount()
       },
     )
+
+    test(
+      `an opened do task draws a Windows path with the characters that a press copies, and a line with an escape sequence with no raw control character, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        const copies: string[] = []
+        on('ui.copy', (_$, e) => {
+          copies.push(e.text)
+          return { value: { isCopied: true as const } }
+        })
+        const windows = 'C:\\Users\\me\\x.ps1'
+        const escape = 'echo \u001b[31mred\u001b[0m'
+        storedTasks(on, (task) => ({ ...task, commands: [windows, escape] }))
+        await start($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'do',
+          title: 'Run the script',
+          commands: [windows, 'echo red'],
+        })
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'open:for:1' })
+        await pane.press({ key: 'copy:1:0' })
+        expect(copies).toEqual([windows])
+        expect(seen.toasts).toEqual([['✓ Copied', 'type ! in the prompt, then paste']])
+        expect(await pane.find({ type: 'Text', text: copies[0] ?? '' })).toBeDefined()
+        const lines = forYouLines(await screen(pane, 41))
+        expect(lines).toEqual(
+          expect.arrayContaining([
+            `${`    ${windows}`.padEnd(36)} copy`,
+            `${'    echo \\u001b[31mred\\u001b[0m'.padEnd(36)} copy`,
+          ]),
+        )
+        for (const line of lines) expect(hasRawControl(line), line).toBe(false)
+        await pane.unmount()
+      },
+    )
+
+    test(
+      `a done or withdrawn do task draws no command rows when it is opened, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        world(on)
+        storedTasks(on, (task) => (task.id === 2 ? { ...task, isWithdrawn: true } : task))
+        await start($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'do',
+          title: 'Push the release tag',
+          commands: ['git push origin v1.2.0'],
+        })
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'do',
+          title: 'Push the main branch',
+          commands: ['git push origin main'],
+        })
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'open:for:1' })
+        await pane.press({ key: 'open:for:2' })
+        const copyKeys = async () =>
+          (await pane.findAll({ type: 'Button' }))
+            .map((button) => button.key)
+            .filter((key) => key?.startsWith('copy:'))
+        expect(await copyKeys()).toEqual(['copy:1:0'])
+        await pane.press({ key: 'for-done:1' })
+        const lines = forYouLines(await screen(pane, 41))
+        expect(lines.filter((line) => line === '    asked 0s ago')).toHaveLength(2)
+        expect(lines.join('\n')).not.toContain('git push origin')
+        expect(await copyKeys()).toEqual([])
+        await pane.unmount()
+      },
+    )
+
+    test(
+      `a copy that throws shows the toast Not copied and logs the failure, on ${surface}`,
+      withWorkitems,
+      async ($, on) => {
+        const seen = world(on)
+        on('ui.copy', () => {
+          throw new Error('the clipboard bridge crashed')
+        })
+        await start($)
+        await $.tool.call({
+          tool: TOOL_ASSIGN,
+          kind: 'do',
+          title: 'Push the release tag',
+          commands: ['git push origin v1.2.0'],
+        })
+        const pane = await mountTasks($, surface)
+        await pane.press({ key: 'open:for:1' })
+        await pane.press({ key: 'copy:1:0' })
+        expect(seen.toasts).toEqual([['■ Not copied', 'the transcript shows why']])
+        expect(
+          seen.logs.filter((text) =>
+            text.startsWith('handily-board: the command was not copied: '),
+          ),
+        ).toHaveLength(1)
+        await pane.unmount()
+      },
+    )
   }
 })
+
+function storedTasks(on: On, change: (task: BoardTask) => BoardTask): void {
+  on('state.set', { plugin: PLUGIN, key: 'list' }, (_$, e, next) =>
+    next({ ...e, value: { ...e.value, tasks: e.value.tasks.map(change) } }),
+  )
+}
 
 const SENT_ANSWER = 'Answer to task 2, "Which port does staging use?": 8443'
 const SENT_CHOICE = 'Decision on task 3, "Which cache store for now?": "SQLite"'

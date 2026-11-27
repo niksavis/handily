@@ -7,7 +7,7 @@ import { wrappedText } from './frame'
 import { logTime } from './log'
 import type { PaneElements, RowLayout } from './pane'
 import { SIGNALS, type SignalLooks } from './signals'
-import { escaped, isForPerson } from './tasks'
+import { controlsEscaped, escaped, isForPerson } from './tasks'
 import { displayWidth, fitted } from './width'
 
 export const FOR_YOU_GROUP = 'group:for-you'
@@ -63,6 +63,10 @@ function openKey(id: number): string {
 
 function isSettled(task: BoardTask): boolean {
   return task.result !== undefined
+}
+
+function isOpen(task: BoardTask): boolean {
+  return !isSettled(task) && task.isWithdrawn !== true
 }
 
 function markOf(
@@ -659,7 +663,7 @@ function openedLines(elements: PaneElements, task: BoardTask, view: ForYouView) 
 }
 
 function commandRows(elements: PaneElements, task: BoardTask, view: ForYouView): RenderElement[] {
-  if (task.kind !== 'do' || task.commands === undefined) return []
+  if (task.kind !== 'do' || task.commands === undefined || !isOpen(task)) return []
   const { Box, Button, Text } = elements
   const id = String(task.id)
   const room = elements.bodyColumns - UNDER_INDENT - BUTTON_GAP - displayWidth(COPY_LABEL)
@@ -676,7 +680,7 @@ function commandRows(elements: PaneElements, task: BoardTask, view: ForYouView):
             Text({
               dimColor: true,
               mono: true,
-              children: fitted(escaped(line), Math.max(room, 1)),
+              children: fitted(controlsEscaped(line), Math.max(room, 1)),
             }),
           ],
         }),
@@ -839,7 +843,7 @@ export function drawForYou(elements: PaneElements, view: ForYouView): RenderElem
   const asked = view.list.tasks.filter(isForPerson)
   if (asked.length === 0) return []
   const idWidth = Math.max(...asked.map((task) => String(task.id).length))
-  const open = asked.filter((task) => !isSettled(task) && task.isWithdrawn !== true)
+  const open = asked.filter(isOpen)
   const toSend = asked.filter((task) => task.result?.isSent === false)
   const withdrawn = asked.filter((task) => task.isWithdrawn === true)
   const isFresh = (task: BoardTask) => task.result?.isFresh === true && task.isWithdrawn !== true

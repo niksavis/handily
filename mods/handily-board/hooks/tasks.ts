@@ -146,8 +146,12 @@ function escapedUnits(text: string): string {
   ).join('')
 }
 
+export function controlsEscaped(text: string): string {
+  return text.replace(UNSAFE_IN_QUOTES, escapedUnits)
+}
+
 export function quoted(text: string): string {
-  return JSON.stringify(text).replace(UNSAFE_IN_QUOTES, escapedUnits)
+  return controlsEscaped(JSON.stringify(text))
 }
 
 const ESCAPED_QUOTE = /\\"/g
