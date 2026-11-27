@@ -128,22 +128,6 @@ jobs:
       - name: Run the mod tests of this shard
         run: node scripts/mods.mjs test --shard ${{ matrix.shard }}/6
 
-  checks-ran:
-    name: every gate ran
-    needs: [gates, mod-tests]
-    if: ${{ always() && github.event_name != 'schedule' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fail unless the gates and every mod test shard ran and passed
-        shell: bash
-        env:
-          GATES: ${{ needs.gates.result }}
-          TESTS: ${{ needs.mod-tests.result }}
-        run: |
-          echo "gates: ${GATES}, mod tests: ${TESTS}"
-          test "${GATES}" = success
-          test "${TESTS}" = success
-
   mods-newest:
     name: mods on newest Claude Code
     runs-on: ubuntu-latest
@@ -168,6 +152,22 @@ jobs:
       - name: Run the scripts tests on the newest Claude Code
         if: ${{ !cancelled() }}
         run: npm run test-scripts
+
+  checks-ran:
+    name: every gate ran
+    needs: [gates, mod-tests]
+    if: ${{ always() && github.event_name != 'schedule' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless the gates and every mod test shard ran and passed
+        shell: bash
+        env:
+          GATES: ${{ needs.gates.result }}
+          TESTS: ${{ needs.mod-tests.result }}
+        run: |
+          echo "gates: ${GATES}, mod tests: ${TESTS}"
+          test "${GATES}" = success
+          test "${TESTS}" = success
 
   report-break:
     name: report a break of the newest Claude Code
