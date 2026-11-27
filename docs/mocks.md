@@ -10326,10 +10326,10 @@ on an answer task. Inline, body 76:
 
 ```text
 ◆ 1 decide  Which cache store for now?
-    [ ★ SQLite ] recommended [ Postgres ] [ Redis ]
+    [ 6: ★ SQLite ] recommended [ Postgres ] [ Redis ]
     [ reject ]
 ◆ 2 answer  Which port does staging use?
-    recommended: "Use port 8443 on the staging host" [ accept ]
+    recommended: "Use port 8443 on the staging host" [ 7: accept ]
     [ Your answer ][Send]
     [ reject ]
 ```
@@ -10338,20 +10338,23 @@ Docked, body 41:
 
 ```text
 ◆ 1 decide  Which cache store for now?
-    [ ★ SQLite ] recommended [ Postgres ]
-    [ Redis ]
+    [ 6: ★ SQLite ] recommended
+    [ Postgres ] [ Redis ]
     [ reject ]
 ◆ 2 answer  Which port does staging use?
     recommended: "Use port 8443 on the
                  staging host"
-    [ accept ]
+    [ 7: accept ]
     [ Your answer ][Send]
     [ reject ]
 ```
 
 - `★ SQLite` draws in the theme colour `suggestion`, and `recommended` and the `recommended:` label
   draw dim. The keys stay `for-pick:1:2`, `for-pick:1:1` and `for-pick:1:3`, so a press sends option
-  2. `[ accept ]` sends the answer as `[Send]` does.
+  2. `[ 7: accept ]` sends the answer as `[Send]` does.
+- With the board holding the keyboard, the keys 6 to 9 press the recommended buttons, top to bottom
+  over the open recommendations that are shown (handily-e83jxw). A fifth one, one behind a fold and
+  one with its reject field open get no key. The agents keep 1 to 5.
 - An option too long for a button keeps its numbered button, `[ ★ 3 ]`, first, and the word
   `recommended` wraps after the option.
 - `task_list`:
