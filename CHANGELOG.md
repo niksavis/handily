@@ -6,6 +6,21 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-board 0.39.1 - 2026-11-27
+
+The plan note reaches worker sessions.
+
+### Fixed
+
+- **handily-board: a worker session gets the plan note on a message from another session.** An
+  orchestrated worker session gets its later prompts as messages from another Claude session,
+  not from the person. Before, the plan note went only with a prompt of the person, so it never
+  reached such a session. Now a prompt with the origin kind `peer` or `coordinator` also
+  carries the note. Its text says that the note is for the session itself and not for the
+  sender, and that the session must not reply about it. The note of the person, the notes about
+  changes of the person, the answers and the resume note did not change. The limit of one note
+  per 20 tool calls covers both kinds of prompt. (handily-hxwjbf)
+
 ## handily-board 0.39.0 - 2026-11-27
 
 task_update renames a plan task, and each task tool names its fields.
