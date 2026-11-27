@@ -55,9 +55,10 @@ buttons at the right edge:
                      [ more ] [ copy reply ]
 ```
 
-- `more` keeps the reply in view: it scrolls the reply to the top of the window. The preview stays
-  as it was, no rule is added above it, and the fold row keeps `less` where `more` was. The fold
-  row turns `▸` into `▾`, and the rest of the reply draws under it. A block that the preview cut
+- `more` keeps the view in place: the transcript does not scroll, and the rest of the reply opens
+  below the button. The preview stays as it was, no rule is added above it, and the fold row keeps
+  `less` where `more` was. The fold row turns `▸` into `▾`, and the rest of the reply draws under
+  it. A block that the preview cut
   goes on under the fold row from the line where the preview cut it: a paragraph from the next
   word, a table from the next row, a code block from the next line with its line numbers, a
   diagram from its next row. No title and no button repeats. `less` folds the rest again:
