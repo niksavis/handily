@@ -16,7 +16,7 @@ import { cpus, loadavg, tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { createScratchFolder, removeScratchFolder } from './scratch.mjs'
-import { changedTests } from './staged.mjs'
+import { changedMods, changedTests } from './staged.mjs'
 
 const root = join(import.meta.dirname, '..')
 const gatedFolders = [
@@ -249,10 +249,10 @@ function needsTypes(mod, dependencies) {
   return unlistedDependencies(mod, dependencies).length > 0
 }
 
-function layTypes(mods, { force, installedVersion }) {
+function layTypes(mods, { force, installedVersion, targets = mods }) {
   const configDir = mkdtempSync(join(tmpdir(), 'handily-types-'))
   try {
-    for (const mod of mods) {
+    for (const mod of targets) {
       const dependencies = dependenciesOf(mod, mods)
       layContracts(mod, dependencies)
       if (!force && !needsTypes(mod, dependencies)) continue
@@ -608,10 +608,14 @@ function checkMarketplace(mods) {
   }
 }
 
-function typecheck(mods) {
-  layTypes(mods, { force: false })
+function typecheck(mods, options) {
+  const scope = taskScope('typecheck', mods, options)
+  if (scope === undefined) return
+  reportChanged('typecheck', scope, scope.reached.length, modSummary('type checks', scope.reached))
+  if (scope.reached.length === 0) return
+  layTypes(mods, { force: false, targets: scope.reached })
   const tsc = require.resolve('typescript/bin/tsc')
-  for (const mod of mods) {
+  for (const mod of scope.reached) {
     if (!existsSync(join(mod.dir, 'tsconfig.json'))) {
       fail(`${mod.name}: no tsconfig.json; it extends ./.claude-plugin/types/tsconfig.json`)
       continue
@@ -661,8 +665,8 @@ function codePointLabel(character) {
   return `U+${character.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`
 }
 
-function checkSourceCharacters() {
-  for (const path of sourceDirs.flatMap(listSourceFiles)) {
+function checkSourceCharacters(paths) {
+  for (const path of paths) {
     const lines = readFileSync(path, 'utf8').split('\n')
     for (const [index, line] of lines.entries()) {
       for (const match of line.matchAll(hiddenCharacterPattern)) {
@@ -675,18 +679,76 @@ function checkSourceCharacters() {
   }
 }
 
-function lint(mods) {
-  checkSourceCharacters()
-  layTypes(mods, { force: false })
+const lintedScriptPattern = /^scripts\/.+\.mjs$/
+
+function changedScriptFiles(paths) {
+  return paths.filter((path) => lintedScriptPattern.test(path) && existsSync(join(root, path)))
+}
+
+function lint(mods, options) {
+  const scope = taskScope('lint', mods, options)
+  if (scope === undefined) return
+  if (scope.all) {
+    lintFiles(mods, mods, sourceDirs.flatMap(listSourceFiles), [
+      ...gatedFolderNames,
+      'scripts',
+      'eslint.config.mjs',
+    ])
+    return
+  }
+  const scripts = changedScriptFiles(scope.paths)
+  reportChanged(
+    'lint',
+    scope,
+    scope.reached.length + scripts.length,
+    `lints ${scope.reached.length} mod(s)${namesOf(scope.reached)} and ${scripts.length} scripts file(s)`,
+  )
+  if (scope.reached.length + scripts.length === 0) return
+  lintFiles(
+    mods,
+    scope.reached,
+    [
+      ...scope.reached.flatMap((mod) => listSourceFiles(mod.dir)),
+      ...scripts.map((path) => join(root, path)),
+    ],
+    [...scope.reached.map((mod) => posixPath(relative(root, mod.dir))), ...scripts],
+  )
+}
+
+function lintFiles(mods, targets, characterPaths, eslintPaths) {
+  checkSourceCharacters(characterPaths)
+  if (targets.length > 0) layTypes(mods, { force: false, targets })
   const eslint = join(require.resolve('eslint/package.json'), '..', 'bin', 'eslint.js')
   run('eslint', process.execPath, [
     eslint,
     '--no-error-on-unmatched-pattern',
     '--max-warnings',
     '0',
-    ...gatedFolderNames,
-    'scripts',
-    'eslint.config.mjs',
+    ...eslintPaths,
+  ])
+}
+
+const formattedRoots = [...gatedFolderNames, 'scripts', 'eslint.config.mjs']
+
+function isFormattedPath(path) {
+  return formattedRoots.some((name) => path === name || path.startsWith(`${name}/`))
+}
+
+function formatCheck(mods, options) {
+  const scope = taskScope('format-check', mods, options)
+  if (scope === undefined) return
+  const files = scope.all
+    ? formattedRoots
+    : scope.paths.filter((path) => isFormattedPath(path) && existsSync(join(root, path)))
+  reportChanged('format-check', scope, files.length, `checks the format of ${files.length} file(s)`)
+  if (files.length === 0) return
+  const prettier = join(require.resolve('prettier/package.json'), '..', 'bin', 'prettier.cjs')
+  run('prettier', process.execPath, [
+    prettier,
+    '--no-error-on-unmatched-pattern',
+    '--ignore-unknown',
+    '--check',
+    ...files,
   ])
 }
 
@@ -724,7 +786,28 @@ function checkEngineSnapshotIsTracked(mods) {
   }
 }
 
-function validate(mods) {
+function isPluginFolderPath(path) {
+  return path.split('/').includes('.claude-plugin')
+}
+
+function validate(mods, options) {
+  const scope = taskScope('validate', mods, options)
+  if (scope === undefined) return
+  const checksMarketplace = scope.all || scope.paths.some(isPluginFolderPath)
+  const summary = `${modSummary('validates', scope.reached)}${checksMarketplace ? ' and the marketplace' : ''}`
+  reportChanged('validate', scope, scope.reached.length + (checksMarketplace ? 1 : 0), summary)
+  if (checksMarketplace) validateMarketplace(mods)
+  for (const mod of scope.reached) {
+    run(`${mod.name}: claude plugin validate`, 'claude', [
+      'plugin',
+      'validate',
+      '--strict',
+      mod.dir,
+    ])
+  }
+}
+
+function validateMarketplace(mods) {
   const published = publishedMods(mods)
   checkMarketplace(published)
   checkMarketplaceIsGenerated(published)
@@ -737,14 +820,6 @@ function validate(mods) {
     )
   }
   run('marketplace: claude plugin validate', 'claude', ['plugin', 'validate', ...strict, root])
-  for (const mod of mods) {
-    run(`${mod.name}: claude plugin validate`, 'claude', [
-      'plugin',
-      'validate',
-      '--strict',
-      mod.dir,
-    ])
-  }
 }
 
 const testFilePattern = /\.test\.tsx?$/
@@ -1414,21 +1489,21 @@ const pushBase = 'origin/main'
 const commitIdPattern = /^[0-9a-f]{4,64}$/i
 const zeroIdPattern = /^0+$/
 
-function gitPaths(args, kind) {
+function gitPaths(task, args, kind) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
   if (result.error !== undefined || result.status !== 0) {
     const detail =
       result.error?.message ??
       (result.stderr.trim().split('\n')[0] || `exit ${String(result.status)}`)
     fail(
-      `test: --changed cannot read the ${kind} paths with git ${args.filter((arg) => arg !== '-z').join(' ')} (${detail}); run it in a git work tree with ${pushBase} fetched, or run node scripts/mods.mjs test`,
+      `${task}: --changed cannot read the ${kind} paths with git ${args.filter((arg) => arg !== '-z').join(' ')} (${detail}); run it in a git work tree with ${pushBase} fetched, or run node scripts/mods.mjs ${task}`,
     )
     return undefined
   }
   return result.stdout.split('\0').filter(Boolean)
 }
 
-function pushedRanges(refs) {
+function pushedRanges(task, refs) {
   const lines = refs
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -1443,7 +1518,7 @@ function pushedRanges(refs) {
       !commitIdPattern.test(remote ?? '')
     ) {
       fail(
-        `test: --changed reads the pushed refs of BASICLY_PUSH_REFS, and the line "${line}" is not "<local ref> <local commit> <remote ref> <remote commit>"; push again, or run node scripts/mods.mjs test`,
+        `${task}: --changed reads the pushed refs of BASICLY_PUSH_REFS, and the line "${line}" is not "<local ref> <local commit> <remote ref> <remote commit>"; push again, or run node scripts/mods.mjs ${task}`,
       )
       return undefined
     }
@@ -1453,24 +1528,101 @@ function pushedRanges(refs) {
   return ranges
 }
 
-function readChangedPaths() {
+function readChangedPaths(task) {
   const refs = process.env.BASICLY_PUSH_REFS
   if (refs === undefined) {
-    return { kind: 'staged', paths: gitPaths(stagedPathsCommand, 'staged') }
+    return { kind: 'staged', paths: gitPaths(task, stagedPathsCommand, 'staged') }
   }
-  const ranges = pushedRanges(refs)
+  const ranges = pushedRanges(task, refs)
   if (ranges === undefined) return { kind: 'pushed', paths: undefined }
   const paths = new Set()
   for (const range of ranges) {
-    const listed = gitPaths([...pushedPathsCommand, ...range], 'pushed')
+    const listed = gitPaths(task, [...pushedPathsCommand, ...range], 'pushed')
     if (listed === undefined) return { kind: 'pushed', paths: undefined }
     for (const path of listed) paths.add(path)
   }
   return { kind: 'pushed', paths: [...paths].sort() }
 }
 
+function declaredDependencyNames(mod) {
+  const path = join(mod.dir, '.claude-plugin', 'plugin.json')
+  const declared = existsSync(path)
+    ? parseJson(readFileSync(path, 'utf8'))?.dependencies
+    : undefined
+  return Array.isArray(declared) ? declared.filter((name) => typeof name === 'string') : []
+}
+
+const changedTaskText = {
+  validate: {
+    command: 'npm run validate',
+    none: 'validates no mod',
+    full: 'validates every mod and the marketplace',
+  },
+  typecheck: {
+    command: 'npm run typecheck',
+    none: 'type checks no mod',
+    full: 'type checks every mod',
+  },
+  lint: { command: 'npm run lint', none: 'lints no file', full: 'lints every mod and script' },
+  'format-check': {
+    command: 'npm run format:check',
+    none: 'checks the format of no file',
+    full: 'checks the format of every file',
+  },
+}
+
+function fullRunNote(task) {
+  const { command, full } = changedTaskText[task]
+  return `${command} ${full}`
+}
+
+function namesOf(mods) {
+  return mods.length > 0 ? ` (${mods.map((mod) => mod.name).join(', ')})` : ''
+}
+
+function modSummary(verb, mods) {
+  return `${verb} ${mods.length} mod(s)${namesOf(mods)}`
+}
+
+function reportChanged(task, scope, count, summary) {
+  if (scope.all || scope.isEmpty === true) return
+  const found = `${scope.paths.length} ${scope.kind} path(s)`
+  if (count === 0) {
+    console.log(
+      `${task}: --changed reaches nothing in ${found}, so it ${changedTaskText[task].none}; ${fullRunNote(task)}`,
+    )
+  } else {
+    console.log(`${task}: --changed ${summary} for ${found}; ${fullRunNote(task)}`)
+  }
+}
+
+function taskScope(task, mods, { values = {} } = {}) {
+  if (values.changed !== true) return { all: true, reached: mods, paths: [] }
+  const { kind, paths } = readChangedPaths(task)
+  if (paths === undefined) return undefined
+  if (paths.length === 0) {
+    console.log(
+      `${task}: --changed finds no ${kind} path, so it ${changedTaskText[task].none}; ${fullRunNote(task)}`,
+    )
+    return { all: false, reached: [], paths, kind, isEmpty: true }
+  }
+  const { all, names } = changedMods({
+    root,
+    mods,
+    paths,
+    isSkipped: isGeneratedTypesPath,
+    dependenciesOf: declaredDependencyNames,
+  })
+  if (all) {
+    console.log(
+      `${task}: --changed finds a ${kind} path that reaches every mod, so it runs as ${changedTaskText[task].command}`,
+    )
+  }
+  return { all, reached: mods.filter((mod) => names.has(mod.name)), paths, kind }
+}
+
 function changedSelection(mods) {
-  const { kind, paths } = readChangedPaths()
+  const { kind, paths } = readChangedPaths('test')
   if (paths === undefined) return undefined
   if (paths.length === 0) {
     console.log(
@@ -1484,6 +1636,7 @@ function changedSelection(mods) {
     paths,
     testFilesOf: listTestFiles,
     isSkipped: isGeneratedTypesPath,
+    dependenciesOf: declaredDependencyNames,
   })
   const total = [...selection.filesByMod.values()].reduce((sum, files) => sum + files.size, 0)
   console.log(
@@ -1553,6 +1706,7 @@ const tasks = {
   typecheck,
   lint,
   validate,
+  'format-check': formatCheck,
   test,
   'test-scripts': () => runScriptTests(),
   'test-times': writeTestTimes,
@@ -1564,15 +1718,20 @@ const tasks = {
   },
 }
 
+const changedArgument = { changed: { type: 'boolean' } }
 const taskArguments = {
   marketplace: { pin: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } },
+  validate: changedArgument,
+  typecheck: changedArgument,
+  lint: changedArgument,
+  'format-check': changedArgument,
   test: {
     shard: { type: 'string' },
     file: { type: 'string', multiple: true },
     changed: { type: 'boolean' },
   },
 }
-const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>... | --changed], or ${testTimesCommand}`
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs <validate|typecheck|lint|format-check> [--changed], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>... | --changed], or ${testTimesCommand}`
 
 function readTaskArguments(name, args) {
   try {

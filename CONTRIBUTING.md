@@ -43,7 +43,8 @@ npm run check
 ```
 
 `npm run check` runs validate, type check, lint and test. The pre-commit and pre-push hooks
-run only the tests of the changed files, as the section on changed tests below describes. CI
+run validate, type check, lint, format and test only for the mods that a change reaches, as the
+section on changed checks below describes. CI
 runs every gate in the table, the checks of `basicly verify --mode full`, with the mod tests
 split into parallel jobs by `node scripts/mods.mjs test --shard <n>/<count>` and the scripts
 tests in `npm run test-scripts`.
@@ -66,11 +67,21 @@ rest of its folder, through the same copy that the gate uses for a test that run
 Give `--file` more than once to run more files. It refuses a path that is not a test file of a
 mod, and it does not go together with `--shard`. No gate passes `--file`.
 
-### Changed tests in the pre-commit and pre-push hooks
+### Changed checks in the pre-commit and pre-push hooks
 
-The pre-commit hook and the pre-push hook run the `fast` checks of `basicly.toml`. Their test
-check, `mods-test-changed`, runs `node scripts/mods.mjs test --changed`. The command reads the
-changed paths from one of two sources:
+The pre-commit hook and the pre-push hook run the `fast` checks of `basicly.toml`. Each of
+these checks runs its command with `--changed`, so it runs only for the mods that the change
+reaches:
+
+| Check | Command | What it runs |
+| --- | --- | --- |
+| `mods-validate-changed` | `node scripts/mods.mjs validate --changed` | `claude plugin validate --strict` for each reached mod. The marketplace checks run only when the change reaches every mod, or when a path in a `.claude-plugin` folder changed |
+| `mods-typecheck-changed` | `node scripts/mods.mjs typecheck --changed` | `tsc` for each reached mod |
+| `eslint-changed` | `node scripts/mods.mjs lint --changed` | The hidden character check and ESLint over the folders of the reached mods and the changed `.mjs` files under `scripts/` |
+| `prettier-changed` | `node scripts/mods.mjs format-check --changed` | `prettier --check` over the changed files under `mods`, `probes`, `scripts` and `eslint.config.mjs`. Its fix command writes the format before the gate |
+| `mods-test-changed` | `node scripts/mods.mjs test --changed` | Every test file of each reached mod, and the scripts tests that the list below names |
+
+The commands read the changed paths from one of two sources:
 
 | Hook | Changed paths |
 | --- | --- |
@@ -78,25 +89,39 @@ changed paths from one of two sources:
 | pre-push | The pushed paths of each pushed ref, from `git diff --name-only` against the remote commit, or against `origin/main` for a new branch |
 
 The pre-push hook gives the pushed refs in the `BASICLY_PUSH_REFS` variable. When that variable is
-set but empty, the command reads `git diff --name-only origin/main...HEAD`. Both hooks use the
-same map from a changed path to the tests in `scripts/staged.mjs`. It runs only these tests:
+set but empty, the commands read `git diff --name-only origin/main...HEAD`. Both hooks use the
+same map from a changed path to the mods, `changedMods` in `scripts/staged.mjs`:
 
-- A changed file in the folder of a mod runs every test file of that mod.
-- A changed file outside the folder of a mod that a file of the mod imports runs every test file
-  of that mod.
+- A changed Markdown file reaches no mod.
+- A changed file in the folder of a mod reaches that mod.
+- A changed file outside the folder of a mod that a file of the mod imports reaches that mod.
+- A reached mod also reaches each mod that names it in the `dependencies` of its `plugin.json`,
+  directly or through other mods.
+- A change of `package.json`, `package-lock.json`, `eslint.config.mjs`, `.prettierrc.json`, a
+  root `tsconfig*.json`, `scripts/staged.mjs`, or `scripts/mods.mjs` and the files that it
+  imports reaches every mod.
+- A changed file that maps to no mod reaches every mod. So an unmapped path runs every mod.
+  Examples are a file directly under `probes/`, a file of the root `.claude-plugin/` folder, and a
+  root file such as `basicly.toml`. A changed file under `scripts/` that no mod imports reaches no
+  mod.
+
+When the change reaches every mod, each check runs as its full command. A generated
+`.claude-plugin/types` file reaches its mod for validate, the type check and lint, but it runs no
+test. The test check also runs these scripts tests:
+
 - A changed scripts test runs.
 - A scripts test runs when it imports a changed file, directly or through other imports.
 - The file-name rule: a scripts test runs when it, or a script that it imports, names the file
   name of a changed file in a string. For example, `scripts/mods.test.mjs` starts
   `scripts/mods.mjs`, and `scripts/width.test.mjs` reads `hooks/width.ts` of each mod. The rule
   also selects a test that only writes a file of that name in a fixture, such as `register.ts`.
-- A changed Markdown file runs no test. So a commit or a push of documentation only runs no mod
-  test.
 
-When no path changed, `--changed` runs no test and says so. `--changed` does not go together with
-`--file` or `--shard`. The full suite stays in CI. The `full` check `mods-test` runs every test
-file, and the `basicly-gates` workflow runs it in shards on every pull request and every push to
-`main`.
+So a commit or a push of Markdown files only runs no check. When no path changed, or the change
+reaches nothing, each `--changed` command says that it runs nothing, names the full command and
+passes. `test --changed` does not go together with `--file` or `--shard`. The full gates stay in
+CI. The `full` checks `mods-validate`, `mods-typecheck`, `eslint`, `prettier` and `mods-test`
+run the full commands, and the `basicly-gates` workflow runs them on every pull request and every
+push to `main`, with the mod tests in shards.
 
 ### Test time limit
 

@@ -7,6 +7,11 @@ const specifierPattern = /\b(?:from|import)\s*\(?\s*(['"])(\.{1,2}\/[^'"\n]*)\1/
 const literalPattern = /(['"`])([^'"`\n]+)\1/g
 const resolvedSuffixes = ['', '.ts', '.tsx', '.mjs', '.js', '/index.ts', '/index.mjs']
 const scriptTestPattern = /\.test\.mjs$/
+const generatedTypesPattern = /(?:^|\/)\.claude-plugin\/types\//
+const rootConfigPattern =
+  /^(?:package\.json|package-lock\.json|eslint\.config\.mjs|\.prettierrc\.json|tsconfig[^/]*\.json)$/
+const gateRunner = 'scripts/mods.mjs'
+const scriptsFolder = 'scripts/'
 
 function posixPath(path) {
   return path.split(sep).join('/')
@@ -79,17 +84,68 @@ export function isDocument(path) {
   return documentPattern.test(path)
 }
 
-export function changedTests({ root, mods, paths, testFilesOf, isSkipped = () => false }) {
+export function isGeneratedTypes(path) {
+  return generatedTypesPattern.test(path)
+}
+
+function gateRunnerFiles(root) {
+  return new Set([...importClosure(root, [gateRunner]), 'scripts/staged.mjs'])
+}
+
+function dependantsClosure(mods, reached, dependenciesOf) {
+  const names = new Set(reached)
+  let grown = true
+  while (grown) {
+    grown = false
+    for (const mod of mods) {
+      if (names.has(mod.name)) continue
+      if (dependenciesOf(mod).some((name) => names.has(name))) {
+        names.add(mod.name)
+        grown = true
+      }
+    }
+  }
+  return names
+}
+
+export function changedMods({
+  root,
+  mods,
+  paths,
+  isSkipped = () => false,
+  dependenciesOf = () => [],
+}) {
   const changed = paths.filter((path) => !isDocument(path))
-  const filesByMod = new Map()
+  const allNames = new Set(mods.map((mod) => mod.name))
+  const runnerFiles = gateRunnerFiles(root)
+  const setsAll = (path) => rootConfigPattern.test(path) || runnerFiles.has(path)
+  if (changed.some(setsAll)) return { all: true, names: allNames }
+  const mapped = new Set(changed.filter((path) => path.startsWith(scriptsFolder)))
+  const reached = new Set()
   for (const mod of mods) {
     const folder = `${posixPath(relative(root, mod.dir))}/`
-    const reached =
-      changed.some((path) => path.startsWith(folder)) ||
-      [...importClosure(root, sourceFilesOf(root, mod.dir, isSkipped))].some(
-        (path) => !path.startsWith(folder) && changed.includes(path),
-      )
-    if (reached) filesByMod.set(mod.name, new Set(testFilesOf(mod)))
+    const closure = importClosure(root, sourceFilesOf(root, mod.dir, isSkipped))
+    const hits = changed.filter((path) => path.startsWith(folder) || closure.has(path))
+    for (const path of hits) mapped.add(path)
+    if (hits.length > 0) reached.add(mod.name)
+  }
+  if (changed.some((path) => !mapped.has(path))) return { all: true, names: allNames }
+  return { all: false, names: dependantsClosure(mods, reached, dependenciesOf) }
+}
+
+export function changedTests({
+  root,
+  mods,
+  paths,
+  testFilesOf,
+  isSkipped = () => false,
+  dependenciesOf = () => [],
+}) {
+  const changed = paths.filter((path) => !isDocument(path) && !isGeneratedTypes(path))
+  const reached = changedMods({ root, mods, paths: changed, isSkipped, dependenciesOf }).names
+  const filesByMod = new Map()
+  for (const mod of mods) {
+    if (reached.has(mod.name)) filesByMod.set(mod.name, new Set(testFilesOf(mod)))
   }
   const scriptTests = scriptTestsOf(root).filter((test) => {
     const closure = importClosure(root, [test])

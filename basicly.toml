@@ -89,26 +89,50 @@ concurrency = 5
 [[verify.checks]]
 name = "mods-validate"
 command = ["node", "scripts/mods.mjs", "validate"]
-modes = ["fast", "full"]
+modes = ["full"]
+inputs = ["mods/**", "probes/**", ".claude-plugin/**", "scripts/**"]
+
+[[verify.checks]]
+name = "mods-validate-changed"
+command = ["node", "scripts/mods.mjs", "validate", "--changed"]
+modes = ["fast"]
 inputs = ["mods/**", "probes/**", ".claude-plugin/**", "scripts/**"]
 
 [[verify.checks]]
 name = "mods-typecheck"
 command = ["node", "scripts/mods.mjs", "typecheck"]
-modes = ["fast", "full"]
+modes = ["full"]
+inputs = ["mods/**", "probes/**", "scripts/**", "package.json", "package-lock.json"]
+
+[[verify.checks]]
+name = "mods-typecheck-changed"
+command = ["node", "scripts/mods.mjs", "typecheck", "--changed"]
+modes = ["fast"]
 inputs = ["mods/**", "probes/**", "scripts/**", "package.json", "package-lock.json"]
 
 [[verify.checks]]
 name = "eslint"
 command = ["node", "scripts/mods.mjs", "lint"]
-modes = ["fast", "full"]
+modes = ["full"]
+inputs = ["mods/**", "probes/**", "scripts/**", "eslint.config.mjs", "package.json", "package-lock.json"]
+
+[[verify.checks]]
+name = "eslint-changed"
+command = ["node", "scripts/mods.mjs", "lint", "--changed"]
+modes = ["fast"]
 inputs = ["mods/**", "probes/**", "scripts/**", "eslint.config.mjs", "package.json", "package-lock.json"]
 
 [[verify.checks]]
 name = "prettier"
 command = ["npx", "--no-install", "prettier", "--no-error-on-unmatched-pattern", "--check", "mods", "probes", "scripts", "eslint.config.mjs"]
+modes = ["full"]
+inputs = ["mods/**", "probes/**", "scripts/**", "eslint.config.mjs", ".prettierrc.json"]
+
+[[verify.checks]]
+name = "prettier-changed"
+command = ["node", "scripts/mods.mjs", "format-check", "--changed"]
 fix_command = ["npx", "--no-install", "prettier", "--no-error-on-unmatched-pattern", "--write", "mods", "probes", "scripts", "eslint.config.mjs"]
-modes = ["fast", "full"]
+modes = ["fast"]
 inputs = ["mods/**", "probes/**", "scripts/**", "eslint.config.mjs", ".prettierrc.json"]
 
 [[verify.checks]]

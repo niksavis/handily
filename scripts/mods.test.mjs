@@ -14,11 +14,11 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { delimiter, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, test } from 'node:test'
 import { environmentWithoutGit } from './git-env.mjs'
-import { changedTests } from './staged.mjs'
+import { changedMods, changedTests } from './staged.mjs'
 
 const repoRoot = join(import.meta.dirname, '..')
 
@@ -1148,6 +1148,111 @@ test('changedTests maps a docs-only commit to no test', () => {
   )
 })
 
+test('changedTests maps a staged generated types path to no test', () => {
+  assert.deepEqual(selectStaged(['mods/alpha/.claude-plugin/types/claude-code/index.d.ts']), {
+    mods: {},
+    scriptTests: [],
+  })
+})
+
+test('changedTests maps a staged root config path to every test file of every mod', () => {
+  assert.deepEqual(selectStaged(['package.json']).mods, {
+    alpha: ['alpha.test.ts', 'hooks/inner.test.ts'],
+    beta: ['beta.test.ts'],
+    gamma: ['gamma.test.ts'],
+  })
+})
+
+const stagedModNames = ['alpha', 'beta', 'gamma']
+
+function reachStaged(paths, dependencies = {}, files = stagedTreeFiles) {
+  const tree = makeStagedTree(files)
+  const mods = stagedModNames.map((name) => ({ name, dir: join(tree, 'mods', name) }))
+  const { all, names } = changedMods({
+    root: tree,
+    mods,
+    paths,
+    dependenciesOf: (mod) => dependencies[mod.name] ?? [],
+  })
+  return { all, names: [...names].sort() }
+}
+
+const reachedEveryMod = { all: true, names: stagedModNames }
+
+test('changedMods maps a path in the folder of one mod to that mod alone', () => {
+  assert.deepEqual(reachStaged(['mods/alpha/hooks/register.ts']), { all: false, names: ['alpha'] })
+})
+
+test('changedMods maps a shared module outside the mod folders to the mods that import it, and another script to no mod', () => {
+  assert.deepEqual(reachStaged(['scripts/shared.mjs']), { all: false, names: ['beta'] })
+  assert.deepEqual(reachStaged(['scripts/tool.mjs', 'scripts/alone.test.mjs']), {
+    all: false,
+    names: [],
+  })
+})
+
+test('changedMods maps a docs-only change to no mod', () => {
+  assert.deepEqual(
+    reachStaged(['mods/alpha/README.md', 'changelog.d/handily-x1.added.md', 'docs/design.md']),
+    { all: false, names: [] },
+  )
+})
+
+test('changedMods maps a dependency mod to its dependants and to their dependants', () => {
+  const dependencies = { gamma: ['alpha'], beta: ['gamma'] }
+  assert.deepEqual(reachStaged(['mods/alpha/hooks/register.ts'], dependencies), {
+    all: false,
+    names: ['alpha', 'beta', 'gamma'],
+  })
+  assert.deepEqual(reachStaged(['mods/gamma/hooks/register.ts'], dependencies), {
+    all: false,
+    names: ['beta', 'gamma'],
+  })
+})
+
+test('changedMods maps each root config path and each file of the gate runner to every mod', () => {
+  const files = {
+    ...stagedTreeFiles,
+    'scripts/mods.mjs': "import { scratch } from './scratch.mjs'\n",
+    'scripts/scratch.mjs': 'export const scratch = 1\n',
+  }
+  for (const path of [
+    'package.json',
+    'package-lock.json',
+    'eslint.config.mjs',
+    '.prettierrc.json',
+    'tsconfig.json',
+    'tsconfig.base.json',
+    'scripts/mods.mjs',
+    'scripts/staged.mjs',
+    'scripts/scratch.mjs',
+  ]) {
+    assert.deepEqual(
+      reachStaged(['mods/alpha/hooks/register.ts', path], {}, files),
+      reachedEveryMod,
+      path,
+    )
+  }
+})
+
+test('changedMods maps a path that maps to no mod to every mod', () => {
+  for (const path of [
+    'probes/x.ts',
+    'basicly.toml',
+    '.claude-plugin/marketplace.json',
+    'mods/removed/hooks/register.ts',
+  ]) {
+    assert.deepEqual(reachStaged([path]), reachedEveryMod, path)
+  }
+})
+
+test('changedMods maps a generated types path to its mod, so the type check keeps it', () => {
+  assert.deepEqual(reachStaged(['mods/alpha/.claude-plugin/types/claude-code/index.d.ts']), {
+    all: false,
+    names: ['alpha'],
+  })
+})
+
 const changedScriptTest =
   "import { test } from 'node:test'\ntest('the changed scripts test runs', () => {})\n"
 const zeroCommit = '0'.repeat(40)
@@ -1330,6 +1435,344 @@ test('test refuses --changed together with --file or --shard and names the comma
       result.stderr,
     )
     assert.deepEqual(calls, [])
+  }
+})
+
+const scopedSources = {
+  clean: 'export const answer = 42\n',
+  broken: "export const answer = Math.max('a')\ndebugger\nexport const spaced  =  1\n",
+}
+const scopedEslintConfig = `export default [
+  { ignores: ['**/.claude-plugin/types/**', 'node_modules/**'] },
+  { files: ['**/*.ts', '**/*.mjs'], rules: { 'no-debugger': 'error' } },
+]
+`
+const cleanChange = { 'mods/clean/hooks/extra.ts': 'export const extra = 1\n' }
+const brokenChange = { 'mods/broken/hooks/more.ts': 'export const more = 1\n' }
+const docsChange = {
+  'mods/clean/README.md': '# clean\n',
+  'changelog.d/handily-x1.added.md': '- x\n',
+}
+
+function makeScopedRepo() {
+  const root = mkdtempSync(join(tmpdir(), 'handily-mods-scoped-'))
+  after(() => rmSync(root, { recursive: true, force: true }))
+  mkdirSync(join(root, 'scripts'))
+  copyGateScripts(root)
+  symlinkSync(join(repoRoot, 'node_modules'), join(root, 'node_modules'), 'junction')
+  for (const name of ['.prettierrc.json', '.prettierignore']) {
+    cpSync(join(repoRoot, name), join(root, name))
+  }
+  writeFiles(root, {
+    'eslint.config.mjs': scopedEslintConfig,
+    '.agents/plugins/marketplace.json': '{ "plugins": [] }\n',
+  })
+  for (const [name, source] of Object.entries(scopedSources)) {
+    writeFiles(root, {
+      [`mods/${name}/.claude-plugin/plugin.json`]: `{\n  "name": "${name}"\n}\n`,
+      [`mods/${name}/.claude-plugin/types/tsconfig.json`]: engineTsconfig([]),
+      [`mods/${name}/tsconfig.json`]:
+        '{\n  "extends": "./.claude-plugin/types/tsconfig.json",\n  "include": ["hooks"]\n}\n',
+      [`mods/${name}/hooks/register.ts`]: source,
+    })
+  }
+  git(root, 'init', '--quiet')
+  mkdirSync(join(root, '.claude-plugin'))
+  const marketplace = spawnSync(
+    process.execPath,
+    [join(root, 'scripts', 'mods.mjs'), 'marketplace'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: environmentWithoutGit,
+    },
+  )
+  assert.equal(marketplace.status, 0, marketplace.stdout + marketplace.stderr)
+  pinGit(root, 'add', 'mods', 'scripts', 'eslint.config.mjs', '.claude-plugin', '.agents')
+  pinGit(root, 'commit', '--quiet', '-m', 'base')
+  return { root }
+}
+
+function stageScoped(repo, changes) {
+  writeFiles(repo.root, changes)
+  git(repo.root, 'add', ...Object.keys(changes))
+}
+
+function pushScoped(repo, changes) {
+  pinGit(
+    repo.root,
+    'update-ref',
+    'refs/remotes/origin/main',
+    pinGit(repo.root, 'rev-parse', 'HEAD'),
+  )
+  writeFiles(repo.root, changes)
+  pinGit(repo.root, 'add', ...Object.keys(changes))
+  pinGit(repo.root, 'commit', '--quiet', '-m', 'lane work')
+  stageScoped(repo, brokenChange)
+  return `refs/heads/lane ${pinGit(repo.root, 'rev-parse', 'HEAD')} refs/heads/lane ${zeroCommit}\n`
+}
+
+function makeRecordingClaude() {
+  return makeFakeClaude(String.raw`const { appendFileSync } = require('node:fs')
+const { join } = require('node:path')
+appendFileSync(join(__dirname, 'calls.jsonl'), JSON.stringify({ args: process.argv.slice(2) }) + '\n')`)
+}
+
+function runScopedGate(repo, task, { pushRefs } = {}) {
+  const bin = makeRecordingClaude()
+  const env = { ...environmentWithoutGit, PATH: `${bin}${delimiter}${process.env.PATH}` }
+  delete env.GITHUB_ACTIONS
+  delete env.NODE_TEST_CONTEXT
+  delete env.BASICLY_PUSH_REFS
+  if (pushRefs !== undefined) env.BASICLY_PUSH_REFS = pushRefs
+  const result = spawnSync(
+    process.execPath,
+    [join(repo.root, 'scripts', 'mods.mjs'), task, '--changed'],
+    { cwd: repo.root, encoding: 'utf8', env },
+  )
+  const validated = readCalls(bin).map(
+    ({ args }) => relative(repo.root, args.at(-1)).split(sep).join('/') || '.',
+  )
+  return { result, validated, output: result.stdout + result.stderr }
+}
+
+function outputLines(result) {
+  return result.stdout.split('\n')
+}
+
+const everyModLine = (task, command) =>
+  `${task}: --changed finds a staged path that reaches every mod, so it runs as ${command}`
+
+test('validate --changed validates only the mod whose file is staged and not the marketplace', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, cleanChange)
+  const { result, validated, output } = runScopedGate(repo, 'validate')
+  assert.equal(result.status, 0, output)
+  assert.deepEqual(validated, ['mods/clean'])
+  assert.ok(
+    outputLines(result).includes(
+      'validate: --changed validates 1 mod(s) (clean) for 1 staged path(s); npm run validate validates every mod and the marketplace',
+    ),
+    output,
+  )
+})
+
+test('validate --changed checks the marketplace when a plugin.json of a mod is staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, {
+    'mods/clean/.claude-plugin/plugin.json': '{\n  "name": "clean",\n  "version": "0.1.0"\n}\n',
+  })
+  const { result, validated, output } = runScopedGate(repo, 'validate')
+  assert.equal(result.status, 0, output)
+  assert.deepEqual(validated, ['.', 'mods/clean'])
+})
+
+test('validate --changed validates nothing when only documentation files are staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, docsChange)
+  const { result, validated, output } = runScopedGate(repo, 'validate')
+  assert.equal(result.status, 0, output)
+  assert.deepEqual(validated, [])
+  assert.ok(
+    outputLines(result).includes(
+      'validate: --changed reaches nothing in 2 staged path(s), so it validates no mod; npm run validate validates every mod and the marketplace',
+    ),
+    output,
+  )
+})
+
+test('validate --changed validates the marketplace and every mod when a root config path is staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, { ...cleanChange, 'package.json': '{}\n' })
+  const { result, validated, output } = runScopedGate(repo, 'validate')
+  assert.equal(result.status, 0, output)
+  assert.deepEqual(validated, ['.', 'mods/broken', 'mods/clean'])
+  assert.ok(outputLines(result).includes(everyModLine('validate', 'npm run validate')), output)
+})
+
+test('validate --changed in a pre-push hook validates only the mod changed against origin/main and ignores the index', () => {
+  const repo = makeScopedRepo()
+  const pushRefs = pushScoped(repo, cleanChange)
+  const { result, validated, output } = runScopedGate(repo, 'validate', { pushRefs })
+  assert.equal(result.status, 0, output)
+  assert.deepEqual(validated, ['mods/clean'])
+})
+
+test('typecheck --changed type checks only the mod whose file is staged, so a type error in another mod passes', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, cleanChange)
+  const { result, output } = runScopedGate(repo, 'typecheck')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'typecheck: --changed type checks 1 mod(s) (clean) for 1 staged path(s); npm run typecheck type checks every mod',
+    ),
+    output,
+  )
+})
+
+test('typecheck --changed type checks no mod when only documentation files are staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, docsChange)
+  const { result, output } = runScopedGate(repo, 'typecheck')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'typecheck: --changed reaches nothing in 2 staged path(s), so it type checks no mod; npm run typecheck type checks every mod',
+    ),
+    output,
+  )
+})
+
+test('typecheck --changed type checks every mod when a path that maps to no mod is staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, { ...cleanChange, 'probes/x.ts': 'export const probe = 1\n' })
+  const { result, output } = runScopedGate(repo, 'typecheck')
+  assert.equal(result.status, 1, output)
+  assert.ok(outputLines(result).includes(everyModLine('typecheck', 'npm run typecheck')), output)
+  assert.deepEqual(failLines(result), ['FAIL broken: tsc: exit 2'])
+})
+
+test('typecheck --changed in a pre-push hook type checks only the mod changed against origin/main', () => {
+  const repo = makeScopedRepo()
+  const pushRefs = pushScoped(repo, cleanChange)
+  const { result, output } = runScopedGate(repo, 'typecheck', { pushRefs })
+  assert.equal(result.status, 0, output)
+  assert.match(
+    result.stdout,
+    /^typecheck: --changed type checks 1 mod\(s\) \(clean\) for 1 pushed path\(s\);/m,
+  )
+})
+
+test('lint --changed lints only the mod whose file is staged, so a lint error in another mod passes', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, cleanChange)
+  const { result, output } = runScopedGate(repo, 'lint')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'lint: --changed lints 1 mod(s) (clean) and 0 scripts file(s) for 1 staged path(s); npm run lint lints every mod and script',
+    ),
+    output,
+  )
+})
+
+test('lint --changed lints a staged scripts file and no mod', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, { 'scripts/extra.mjs': 'debugger\n' })
+  const { result, output } = runScopedGate(repo, 'lint')
+  assert.equal(result.status, 1, output)
+  assert.match(output, /scripts\/extra\.mjs/)
+  assert.doesNotMatch(output, /mods\/broken/)
+  assert.deepEqual(failLines(result), ['FAIL eslint: exit 1'])
+})
+
+test('lint --changed lints no file when only documentation files are staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, docsChange)
+  const { result, output } = runScopedGate(repo, 'lint')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'lint: --changed reaches nothing in 2 staged path(s), so it lints no file; npm run lint lints every mod and script',
+    ),
+    output,
+  )
+})
+
+test('lint --changed lints every mod and script when a root config path is staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, { ...cleanChange, 'package-lock.json': '{}\n' })
+  const { result, output } = runScopedGate(repo, 'lint')
+  assert.equal(result.status, 1, output)
+  assert.ok(outputLines(result).includes(everyModLine('lint', 'npm run lint')), output)
+  assert.match(output, /mods\/broken\/hooks\/register\.ts/)
+  assert.deepEqual(failLines(result), ['FAIL eslint: exit 1'])
+})
+
+test('lint --changed in a pre-push hook lints only the mod changed against origin/main', () => {
+  const repo = makeScopedRepo()
+  const pushRefs = pushScoped(repo, cleanChange)
+  const { result, output } = runScopedGate(repo, 'lint', { pushRefs })
+  assert.equal(result.status, 0, output)
+  assert.match(
+    result.stdout,
+    /^lint: --changed lints 1 mod\(s\) \(clean\) and 0 scripts file\(s\) for 1 pushed path\(s\);/m,
+  )
+})
+
+test('format-check --changed checks only the staged files, so an unformatted file of another mod passes', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, cleanChange)
+  const { result, output } = runScopedGate(repo, 'format-check')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'format-check: --changed checks the format of 1 file(s) for 1 staged path(s); npm run format:check checks the format of every file',
+    ),
+    output,
+  )
+})
+
+test('format-check --changed checks no file when only documentation files outside the code folders are staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, { 'docs/notes.md': '# notes\n', 'changelog.d/handily-x1.added.md': '- x\n' })
+  const { result, output } = runScopedGate(repo, 'format-check')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'format-check: --changed reaches nothing in 2 staged path(s), so it checks the format of no file; npm run format:check checks the format of every file',
+    ),
+    output,
+  )
+})
+
+test('format-check --changed checks every file when a root config path is staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, {
+    ...cleanChange,
+    '.prettierrc.json': readFileSync(join(repoRoot, '.prettierrc.json'), 'utf8'),
+  })
+  const { result, output } = runScopedGate(repo, 'format-check')
+  assert.equal(result.status, 1, output)
+  assert.ok(
+    outputLines(result).includes(everyModLine('format-check', 'npm run format:check')),
+    output,
+  )
+  assert.deepEqual(
+    output
+      .split('\n')
+      .filter((line) => line.startsWith('[warn] mods/') || line.startsWith('[warn] scripts/')),
+    ['[warn] mods/broken/hooks/register.ts'],
+  )
+  assert.deepEqual(failLines(result), ['FAIL prettier: exit 1'])
+})
+
+test('format-check --changed in a pre-push hook checks only the files changed against origin/main', () => {
+  const repo = makeScopedRepo()
+  const pushRefs = pushScoped(repo, cleanChange)
+  stageScoped(repo, { 'mods/broken/hooks/more.ts': 'export const more  =  1\n' })
+  const { result, output } = runScopedGate(repo, 'format-check', { pushRefs })
+  assert.equal(result.status, 0, output)
+  assert.match(
+    result.stdout,
+    /^format-check: --changed checks the format of 1 file\(s\) for 1 pushed path\(s\);/m,
+  )
+})
+
+test('validate, typecheck, lint and format-check refuse a pushed ref line that names no commit and name their own command', () => {
+  const repo = makeScopedRepo()
+  const line = `refs/heads/lane --output=x refs/heads/lane ${zeroCommit}`
+  for (const task of ['validate', 'typecheck', 'lint', 'format-check']) {
+    const { result, validated, output } = runScopedGate(repo, task, { pushRefs: `${line}\n` })
+    assert.equal(result.status, 1, output)
+    assert.deepEqual(validated, [])
+    assert.ok(
+      result.stderr.includes(
+        `FAIL ${task}: --changed reads the pushed refs of BASICLY_PUSH_REFS, and the line "${line}" is not "<local ref> <local commit> <remote ref> <remote commit>"; push again, or run node scripts/mods.mjs ${task}`,
+      ),
+      output,
+    )
   }
 })
 

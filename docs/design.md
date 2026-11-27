@@ -1995,11 +1995,15 @@ What is in place (handily-fwkt.1):
 
 | Gate | Tool | `basicly.toml` check |
 | --- | --- | --- |
-| Validate | `claude plugin validate --strict`, plus a name check across folder, manifest and marketplace | `mods-validate` |
-| Type check | `tsc` 6.0.3 per mod | `mods-typecheck` |
-| Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` |
-| Format | Prettier 3.9 | `prettier` (with a fix command) |
-| Test | `claude plugin test`; a mod with no test fails | `mods-test` (full mode and CI), `mods-test-changed` (pre-commit and pre-push hooks, the tests of the changed files) |
+| Validate | `claude plugin validate --strict`, plus a name check across folder, manifest and marketplace | `mods-validate` (full mode and CI), `mods-validate-changed` (pre-commit and pre-push hooks, the reached mods) |
+| Type check | `tsc` 6.0.3 per mod | `mods-typecheck` (full mode and CI), `mods-typecheck-changed` (pre-commit and pre-push hooks, the reached mods) |
+| Lint | ESLint 10 with typescript-eslint 8.71 `strictTypeChecked` | `eslint` (full mode and CI), `eslint-changed` (pre-commit and pre-push hooks, the reached mods and the changed scripts) |
+| Format | Prettier 3.9 | `prettier` (full mode and CI), `prettier-changed` (pre-commit and pre-push hooks, the changed files, with a fix command) |
+| Test | `claude plugin test`; a mod with no test fails | `mods-test` (full mode and CI), `mods-test-changed` (pre-commit and pre-push hooks, the tests of the reached mods) |
+
+A `-changed` check runs only for the mods that a change reaches, by `changedMods` in
+`scripts/staged.mjs`. A path that maps to no mod, or a root config path, runs every mod
+(handily-u3gl4j). `CONTRIBUTING.md` gives the full map.
 
 Measured facts behind these choices:
 
