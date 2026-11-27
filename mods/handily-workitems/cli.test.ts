@@ -15,8 +15,12 @@ import {
   OPEN_ITEMS,
   printedItems,
 } from './fixtures/basicly/tracker-items'
-import { resolveProgram, sha256Hex } from './hooks/approval'
+import { resolveProgram, sha256Hex, type Approvals } from './hooks/approval'
 import { isInside, mayBeInside } from './hooks/config'
+import { VAULT_READ_MS } from './hooks/readers/basicly'
+import { createReaders } from './hooks/readers/index'
+import { LOCK_RECHECK_MS, LOCK_STALE_MS, sharedFolderOf } from './hooks/shared'
+import { createProvider, type Provider, type ProviderHost } from './hooks/snapshot'
 import { advanceUntil, settleUntil } from './testing'
 import type {
   WorkitemsLine,
@@ -124,11 +128,11 @@ function sizeOf(file: FakeFile): number {
   return file.size ?? new TextEncoder().encode(file.text).length
 }
 
-function isDirectory(world: World, path: string): boolean {
+function isDirectory(world: Pick<World, 'files'>, path: string): boolean {
   return [...world.files.keys()].some((file) => file.startsWith(`${path}/`))
 }
 
-function entriesIn(world: World, directory: string): FsEntry[] {
+function entriesIn(world: Pick<World, 'files' | 'links'>, directory: string): FsEntry[] {
   const names = new Map<string, FsEntry>()
   for (const [file, entry] of world.files) {
     if (!file.startsWith(`${directory}/`)) continue
@@ -260,6 +264,10 @@ function fakeWorld(
     if (!file) return { deny: `ENOENT: ${e.path}` }
     if (sizeOf(file) > MAX_READ_BYTES) return { deny: `over 4 MiB: ${e.path}` }
     return { value: e.as === 'bytes' ? { base64: btoa(file.text) } : file.text }
+  })
+  on('fs.write', (_$, e) => {
+    world.files.set(absolutePath(e.path), { text: e.text, mtimeMs: 1 })
+    return { value: undefined }
   })
   on('store.get', (_$, e) => {
     world.storeReads.push(e.key)
@@ -559,6 +567,20 @@ describe('basicly source in a vault repository', () => {
   )
 
   test(
+    'keeps the read in the user cache folder under the hash of the ledger path',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const { world } = await approvedRepo($, on, FROZEN_REPO)
+      const name = await sha256Hex(new TextEncoder().encode(`${ROOT}/.basicly/ledger`))
+      const kept = world.files.get(`${HOME}/.cache/handily/workitems/${name}.json`)
+      const parsed = JSON.parse(kept?.text ?? 'null') as { place?: unknown; output?: unknown }
+      expect(parsed.place).toBe(`${ROOT}/.basicly/ledger`)
+      expect(JSON.parse(String(parsed.output))).toEqual(JSON.parse(OPEN_ITEMS))
+      expect(world.files.has(`${HOME}/.cache/handily/workitems/${name}.lock`)).toBe(true)
+    },
+  )
+
+  test(
     'a frozen ledger file of another schema is no basicly tracker',
     { plugins: [consumer] },
     async ($, on) => {
@@ -572,13 +594,13 @@ describe('basicly source in a vault repository', () => {
   )
 
   test(
-    'a vault repository runs basicly tracker items once in each 30 second step and never on the polls between',
+    'a vault repository runs basicly tracker items once in each 60 second step and never on the polls between',
     { plugins: [consumer] },
     async ($, on) => {
       const { clock, world } = await approvedRepo($, on, FROZEN_REPO)
       const first = itemsRunCount(world)
       expect(first).toBe(1)
-      for (let at = 0; at < 14; at += 1) await clock.advance(2_000)
+      for (let at = 0; at < 29; at += 1) await clock.advance(2_000)
       expect(itemsRunCount(world)).toBe(first)
       await pollUntil($, clock, 2_000, itemsRunsSince(world, 0, first + 1))
       for (let at = 0; at < 5; at += 1) await clock.advance(2_000)
@@ -1390,6 +1412,7 @@ describe('approval of basicly', () => {
     async ($, on) => {
       const { clock, world } = await approvedBasicly($, on)
       world.answer = undefined
+      touchLedger(world, 30)
       const snapshot = await startSession($, clock, false)
       expect(world.asks.length).toBe(1)
       expect(snapshot.state).toBe('ok')
@@ -2342,4 +2365,216 @@ describe('reads stay inside the repo root', () => {
       expect(snapshot.items).toEqual([])
     },
   )
+})
+
+type SharedWorld = {
+  clock: MockClock
+  files: Map<string, FakeFile>
+  itemRuns: number
+  held: Promise<void> | undefined
+  waiting: number
+}
+
+const SHARED_VERSION = 'basicly 0.49.6'
+const SHARED_FOLDER_PATH = `${HOME}/.cache/handily/workitems`
+
+function sharedWorld(on: On): SharedWorld {
+  const files = new Map<string, FakeFile>()
+  for (const [relative, text] of Object.entries(FROZEN_REPO)) {
+    files.set(`${ROOT}/${relative}`, { text, mtimeMs: 10 })
+  }
+  files.set(BASICLY_BIN, { text: 'binary', mtimeMs: 1 })
+  const clock = mock.clock(on, { now: 1_000 })
+  return { clock, files, itemRuns: 0, held: undefined, waiting: 0 }
+}
+
+function sharedListing(world: SharedWorld, directory: string): FsEntry[] {
+  return entriesIn({ files: world.files, links: new Map() }, directory)
+}
+
+function sharedIsDirectory(world: SharedWorld, path: string): boolean {
+  return isDirectory({ files: world.files }, path)
+}
+
+async function sharedRun(world: SharedWorld, argv: readonly string[]): Promise<ProcessRunResult> {
+  if (argv[1] === '--version') return processResult({ stdout: SHARED_VERSION })
+  world.itemRuns += 1
+  const held = world.held
+  world.held = undefined
+  if (held !== undefined) await held
+  return processResult({ stdout: OPEN_ITEMS })
+}
+
+const sharedApprovals: Approvals = {
+  generation: () => 0,
+  startSession: () => undefined,
+  check: () => Promise.resolve({ approved: true, argv0: BASICLY_BIN }),
+}
+
+type SharedSession = { provider: Provider; published: WorkitemsSnapshot[] }
+
+function sharedSession(world: SharedWorld): SharedSession {
+  const published: WorkitemsSnapshot[] = []
+  const host: ProviderHost = {
+    root: () => Promise.resolve(ROOT),
+    now: () => Promise.resolve(world.clock.now()),
+    exists: (path) => Promise.resolve(world.files.has(path) || sharedIsDirectory(world, path)),
+    stat: (path, options) => {
+      const file = world.files.get(path)
+      if (!file && !sharedIsDirectory(world, path))
+        return Promise.reject(new Error(`ENOENT: ${path}`))
+      const stat = {
+        kind: file ? ('file' as const) : ('dir' as const),
+        size: file ? sizeOf(file) : 0,
+        mtimeMs: file?.mtimeMs ?? 0,
+      }
+      return Promise.resolve(options?.resolve === true ? { ...stat, realPath: path } : stat)
+    },
+    list: (path) => Promise.resolve(sharedListing(world, path)),
+    read: (path) => {
+      const file = world.files.get(path)
+      return file ? Promise.resolve(file.text) : Promise.reject(new Error(`ENOENT: ${path}`))
+    },
+    readBytes: (path) =>
+      Promise.resolve(new TextEncoder().encode(world.files.get(path)?.text ?? '')),
+    homeFolder: () => Promise.resolve(HOME),
+    sharedFolder: () => Promise.resolve(SHARED_FOLDER_PATH),
+    write: (path, text) => {
+      world.files.set(path, { text, mtimeMs: world.clock.now() })
+      return Promise.resolve()
+    },
+    sleep: async (ms) => {
+      world.waiting += 1
+      try {
+        await world.clock.sleep(ms)
+      } finally {
+        world.waiting -= 1
+      }
+    },
+    commands: {
+      canRun: () => Promise.resolve(true),
+      run: (argv) => sharedRun(world, argv),
+      spawn: () => {
+        throw new Error('the basicly reader spawns no reader')
+      },
+      systemRoot: () => Promise.resolve(undefined),
+      searchPath: () => Promise.resolve({ path: PATH_WITH_BASICLY, extensions: undefined }),
+      approvals: sharedApprovals,
+    },
+    publish: (snapshot) => {
+      published.push(snapshot)
+      return Promise.resolve()
+    },
+    publishChecked: () => Promise.resolve(),
+  }
+  return { provider: createProvider(host, createReaders()), published }
+}
+
+async function sharedSettle(
+  world: SharedWorld,
+  isDone: () => boolean,
+  condition: string,
+): Promise<void> {
+  await settleUntil(
+    world.clock,
+    () => Promise.resolve(isDone()),
+    (done) => done,
+    condition,
+  )
+}
+
+function heldRun(world: SharedWorld): () => void {
+  let release: (() => void) | undefined
+  world.held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return () => {
+    release?.()
+  }
+}
+
+function lastItems(session: SharedSession): string[] {
+  return (session.published.at(-1)?.items ?? []).map((item) => item.key)
+}
+
+const SHARED_KEYS = ['basicly:app-3o75', 'basicly:app-ngri', 'basicly:app-f0fo']
+
+describe('one tracker read per ledger change across sessions', () => {
+  test('two sessions on one ledger in one step run basicly tracker items once', async (_$, on) => {
+    const world = sharedWorld(on)
+    const first = sharedSession(world)
+    const second = sharedSession(world)
+    await first.provider.refresh()
+    await second.provider.refresh()
+    expect(world.itemRuns).toBe(1)
+    expect(lastItems(first)).toEqual(SHARED_KEYS)
+    expect(lastItems(second)).toEqual(SHARED_KEYS)
+  })
+
+  test('a session that finds the lock held waits and then reads the cache', async (_$, on) => {
+    const world = sharedWorld(on)
+    const first = sharedSession(world)
+    const second = sharedSession(world)
+    const release = heldRun(world)
+    const firstRead = first.provider.refresh()
+    await sharedSettle(world, () => world.itemRuns === 1, 'the first session to run the command')
+    const secondRead = second.provider.refresh()
+    await sharedSettle(world, () => world.waiting === 1, 'the second session to wait')
+    await world.clock.advance(LOCK_RECHECK_MS)
+    await sharedSettle(world, () => world.waiting === 1, 'the second session to wait again')
+    expect(second.published).toEqual([])
+    release()
+    await firstRead
+    await world.clock.advance(LOCK_RECHECK_MS)
+    await secondRead
+    expect(world.itemRuns).toBe(1)
+    expect(lastItems(second)).toEqual(SHARED_KEYS)
+  })
+
+  test('a lock older than 30 s is taken over and the command runs', async (_$, on) => {
+    const world = sharedWorld(on)
+    const first = sharedSession(world)
+    const second = sharedSession(world)
+    heldRun(world)
+    const stuck = first.provider.refresh()
+    await sharedSettle(world, () => world.itemRuns === 1, 'the first session to run the command')
+    await world.clock.advance(LOCK_STALE_MS / 2)
+    const secondRead = second.provider.refresh()
+    await sharedSettle(world, () => world.waiting === 1, 'the second session to wait')
+    while (world.clock.now() < 1_000 + LOCK_STALE_MS - LOCK_RECHECK_MS) {
+      await world.clock.advance(LOCK_RECHECK_MS)
+      await sharedSettle(world, () => world.waiting === 1, 'the second session to wait again')
+    }
+    expect(world.itemRuns).toBe(1)
+    await world.clock.advance(LOCK_RECHECK_MS)
+    await secondRead
+    expect(world.itemRuns).toBe(2)
+    expect(lastItems(second)).toEqual(SHARED_KEYS)
+    expect(first.published).toEqual([])
+    expect(stuck).toBeInstanceOf(Promise)
+  })
+
+  test('a cache kept under an older vault read step is not used', async (_$, on) => {
+    const world = sharedWorld(on)
+    const first = sharedSession(world)
+    const second = sharedSession(world)
+    await first.provider.refresh()
+    await world.clock.advance(VAULT_READ_MS)
+    await second.provider.refresh()
+    expect(world.itemRuns).toBe(2)
+    expect(lastItems(second)).toEqual(SHARED_KEYS)
+  })
+})
+
+describe('the shared cache folder', () => {
+  test('is under XDG_CACHE_HOME when it names an absolute folder, else under the home folder', () => {
+    expect(sharedFolderOf('/var/cache/someone', HOME)).toBe('/var/cache/someone/handily/workitems')
+    expect(sharedFolderOf('relative/cache', HOME)).toBe(SHARED_FOLDER_PATH)
+    expect(sharedFolderOf(undefined, `${HOME}/`)).toBe(SHARED_FOLDER_PATH)
+    expect(sharedFolderOf(undefined, 'C:\\Users\\someone')).toBe(
+      'C:\\Users\\someone/.cache/handily/workitems',
+    )
+    expect(sharedFolderOf(undefined, undefined)).toBeUndefined()
+    expect(sharedFolderOf(undefined, 'someone')).toBeUndefined()
+  })
 })

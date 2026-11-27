@@ -7,6 +7,7 @@ import type {
   WorkitemsWriteVerbs,
 } from '../../types'
 import type { Approvals } from '../approval'
+import type { SharedRead } from '../shared'
 import { createAdapterReader } from './adapter'
 import { createBasiclyReader } from './basicly'
 import { beadsReader } from './beads'
@@ -37,6 +38,7 @@ export type TrackerFiles = {
   ) => Promise<{ size: number; mtimeMs: number; kind?: 'file' | 'dir' | 'other' }>
   hash: (relativePath: string) => Promise<string | undefined>
   readUserFile: (homeRelativePath: string) => Promise<string | undefined>
+  shared: SharedRead
   commands: TrackerCommands
 }
 

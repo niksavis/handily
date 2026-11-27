@@ -2,6 +2,7 @@ import type { EngineInterface, RenderSurface, Register, Timer } from 'claude-cod
 import { createApprovals, type Approvals } from './approval'
 import { classify, trackerFileOf } from './commands'
 import { createReaders, writeVerbs } from './readers/index'
+import { sharedFolderOf } from './shared'
 import { createProvider, POLL_INTERVAL_MS, type Provider } from './snapshot'
 import { stateLines } from './states'
 
@@ -27,9 +28,24 @@ function bytesOf(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0))
 }
 
+export const IDLE_AFTER_MS = 5 * 60_000
+const IDLE_TICKS = IDLE_AFTER_MS / POLL_INTERVAL_MS
+const OWN_PLUGIN = 'handily-workitems'
+
+type PollHost = {
+  every: (ms: number, fn: () => void) => Timer
+  after: (ms: number, fn: () => void) => Timer
+  log: (text: string) => void
+}
+
 type Reads = {
+  host: PollHost | undefined
   poll: Timer | undefined
   provider: Provider | undefined
+  idleTicks: number
+  isConsumerSeen: boolean
+  isIdle: boolean
+  lastPollFailure: string | null
 }
 
 function providerOf(reads: Reads): Provider {
@@ -37,36 +53,71 @@ function providerOf(reads: Reads): Provider {
   return reads.provider
 }
 
-function startPoll($: EngineInterface, reads: Reads): void {
-  reads.poll?.cancel()
-  let lastPollFailure: string | null = null
-  reads.poll = $.clock.every(POLL_INTERVAL_MS, () => {
-    $.workitems.refresh().then(
+function pollHostOf(reads: Reads): PollHost {
+  if (reads.host === undefined) throw new Error('workitems: the engine created no poll host')
+  return reads.host
+}
+
+function pollRead(reads: Reads): void {
+  providerOf(reads)
+    .refresh()
+    .then(
       () => {
-        lastPollFailure = null
+        reads.lastPollFailure = null
       },
       (error: unknown) => {
         const text = `workitems: the poll refresh failed: ${String(error)}`
-        if (text === lastPollFailure) return
-        lastPollFailure = text
-        $.ui.log(text)
+        if (text === reads.lastPollFailure) return
+        reads.lastPollFailure = text
+        pollHostOf(reads).log(text)
       },
     )
+}
+
+function stopPoll(reads: Reads): void {
+  reads.poll?.cancel()
+  reads.poll = undefined
+}
+
+function startPoll(reads: Reads): void {
+  stopPoll(reads)
+  reads.idleTicks = 0
+  reads.isConsumerSeen = false
+  reads.isIdle = false
+  reads.lastPollFailure = null
+  reads.poll = pollHostOf(reads).every(POLL_INTERVAL_MS, () => {
+    reads.idleTicks = reads.isConsumerSeen ? 0 : reads.idleTicks + 1
+    reads.isConsumerSeen = false
+    if (reads.idleTicks >= IDLE_TICKS) {
+      stopPoll(reads)
+      reads.isIdle = true
+      return
+    }
+    pollRead(reads)
+  })
+}
+
+function noteConsumer(reads: Reads): void {
+  reads.isConsumerSeen = true
+  if (!reads.isIdle || reads.provider === undefined || reads.provider.isPaused()) return
+  startPoll(reads)
+  pollHostOf(reads).after(0, () => {
+    pollRead(reads)
   })
 }
 
 async function pause($: EngineInterface, reads: Reads): Promise<void> {
-  reads.poll?.cancel()
-  reads.poll = undefined
+  stopPoll(reads)
+  reads.isIdle = false
   const { value: last } = await $.state.get(SNAPSHOT)
   await providerOf(reads).pause(last)
 }
 
 async function resume($: EngineInterface, reads: Reads): Promise<string> {
   providerOf(reads).resume()
-  startPoll($, reads)
+  startPoll(reads)
   try {
-    await $.workitems.refresh()
+    await providerOf(reads).refresh()
   } catch (error) {
     $.ui.log(`workitems: the refresh after a resume failed: ${String(error)}`)
     return RESUMED_UNREAD_TEXT
@@ -75,7 +126,15 @@ async function resume($: EngineInterface, reads: Reads): Promise<string> {
 }
 
 export const register: Register = (on) => {
-  const reads: Reads = { poll: undefined, provider: undefined }
+  const reads: Reads = {
+    host: undefined,
+    poll: undefined,
+    provider: undefined,
+    idleTicks: 0,
+    isConsumerSeen: false,
+    isIdle: false,
+    lastPollFailure: null,
+  }
   let approvals: Approvals | undefined
 
   on('engine.create', async (_$, e, next) => {
@@ -94,6 +153,10 @@ export const register: Register = (on) => {
       },
     })
     approvals = engineApprovals
+    async function homeFolder(): Promise<string | undefined> {
+      const home = await built.env.get('HOME')
+      return home === undefined || home === '' ? built.env.get('USERPROFILE') : home
+    }
     const created = createProvider(
       {
         root: () => built.session.root(),
@@ -103,10 +166,11 @@ export const register: Register = (on) => {
         list: (path) => built.fs.list(path),
         read: (path) => built.fs.read(path),
         readBytes: async (path) => bytesOf((await built.fs.read(path, { as: 'bytes' })).base64),
-        homeFolder: async () => {
-          const home = await built.env.get('HOME')
-          return home === undefined || home === '' ? built.env.get('USERPROFILE') : home
-        },
+        homeFolder,
+        sharedFolder: async () =>
+          sharedFolderOf(await built.env.get('XDG_CACHE_HOME'), await homeFolder()),
+        write: (path, text) => built.fs.write(path, text),
+        sleep: (ms) => built.clock.sleep(ms),
         commands: {
           canRun: async () => canRunCommandsOn(await built.session.surfaces()),
           run: (argv, cwd, env) =>
@@ -129,15 +193,31 @@ export const register: Register = (on) => {
       createReaders(),
     )
     reads.provider = created
+    reads.host = {
+      every: (ms, fn) => built.clock.every(ms, fn),
+      after: (ms, fn) => built.clock.after(ms, fn),
+      log: (text) => {
+        built.ui.log(text)
+      },
+    }
     return {
       ...built,
       workitems: {
-        refresh: (args) => created.refresh(args),
-        create: (args) => created.create(args),
+        refresh: (args) => {
+          noteConsumer(reads)
+          return created.refresh(args)
+        },
+        create: (args) => {
+          noteConsumer(reads)
+          return created.create(args)
+        },
         writeVerbs: () => Promise.resolve(writeVerbs),
         classify: (command) => Promise.resolve(classify(command)),
         trackerFile: (args) => Promise.resolve(trackerFileOf(args)),
-        lines: (args) => Promise.resolve(stateLines(args, created.checked())),
+        lines: (args) => {
+          noteConsumer(reads)
+          return Promise.resolve(stateLines(args, created.checked()))
+        },
       },
     }
   })
@@ -153,10 +233,12 @@ export const register: Register = (on) => {
     if (last?.state === 'paused') {
       await pause($, reads)
     } else {
-      startPoll($, reads)
-      await $.workitems.refresh().catch((error: unknown) => {
-        $.ui.log(`workitems: the first refresh failed: ${String(error)}`)
-      })
+      startPoll(reads)
+      await providerOf(reads)
+        .refresh()
+        .catch((error: unknown) => {
+          $.ui.log(`workitems: the first refresh failed: ${String(error)}`)
+        })
     }
     await $.state.set({ plugin: 'handily-workitems', key: 'ready' }, { root: $.plugin.root })
     return next(e)
@@ -178,8 +260,13 @@ export const register: Register = (on) => {
     return { text: unknownReply(word) }
   })
 
+  on('state.get', { plugin: OWN_PLUGIN }, ($, e, next) => {
+    if (next.origin.plugin !== OWN_PLUGIN) noteConsumer(reads)
+    return next(e)
+  })
+
   on('classic.CwdChanged', async ($, e, next) => {
-    await $.workitems.refresh()
+    await providerOf(reads).refresh()
     return next(e)
   }).catch(($, e, next) => {
     $.ui.log(

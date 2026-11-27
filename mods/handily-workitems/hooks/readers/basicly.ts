@@ -19,7 +19,7 @@ const SOURCE = 'basicly'
 const LEDGER = '.basicly/ledger'
 const TEMPLATE = `${LEDGER}/template.json`
 const FROZEN_SCHEMA = 'basicly.tracker.frozen-ledger.v1'
-export const VAULT_READ_MS = 30_000
+export const VAULT_READ_MS = 60_000
 const KIT_FOLDER = '.basicly/core/kit/tracker'
 const KIT_CODE: readonly CoveredFolder[] = [{ path: KIT_FOLDER, suffix: '', recursive: true }]
 const PROGRAM = 'basicly'
@@ -158,7 +158,10 @@ async function listOpenItems(files: TrackerFiles, memory: VersionMemory): Promis
   const argv0 = await approvedProgram(files, memory)
   if (argv0 === undefined) return approvalNeeded()
   const argv = [argv0, ...COMMAND.slice(1), ...ITEMS_FLAGS]
-  const items = itemsOf(LABEL, await runJson(files, LABEL, argv, pythonEnv(files.root)))
+  const output = await files.shared(await ledgerPlace(files), await sharedMark(files, argv), () =>
+    runJson(files, LABEL, argv, pythonEnv(files.root)),
+  )
+  const items = itemsOf(LABEL, output)
   return { ok: true, items, sourceLabel: SOURCE, caveat: null, listsOpenOnly: true }
 }
 
@@ -203,6 +206,19 @@ async function ledgerStamp(files: TrackerFiles): Promise<string[]> {
   return (await files.list(LEDGER))
     .map((entry) => `${entry.name} ${String(entry.size)} ${String(entry.mtimeMs)}`)
     .sort()
+}
+
+async function ledgerPlace(files: TrackerFiles): Promise<string> {
+  return (await files.realPath(LEDGER)) ?? `${files.root.replace(/[\\/]+$/, '')}/${LEDGER}`
+}
+
+async function sharedMark(files: TrackerFiles, argv: readonly string[]): Promise<string> {
+  const [ledger, kit, program] = await Promise.all([
+    ledgerStamp(files),
+    coverStamp(files, KIT_CODE),
+    files.commands.stamp(argv[0] ?? ''),
+  ])
+  return JSON.stringify([...ledger, kit, program ?? 'no program stamp', ...argv])
 }
 
 async function basiclySignature(files: TrackerFiles): Promise<string> {

@@ -26,6 +26,7 @@ import {
 import { FileProblem, FileTooLarge, isInside, isUnsafeCharacter } from './config'
 import { detect, type Detection } from './detect'
 import type { ReadOutcome, Reader, TrackerFiles } from './readers/index'
+import { createSharedRead, type SharedRead } from './shared'
 
 export const MAX_FILE_BYTES = 4 * 1024 * 1024
 export const POLL_INTERVAL_MS = 2000
@@ -61,6 +62,9 @@ export type ProviderHost = {
   read: (path: string) => Promise<string>
   readBytes: (path: string) => Promise<Uint8Array>
   homeFolder: () => Promise<string | undefined>
+  sharedFolder: () => Promise<string | undefined>
+  write: (path: string, text: string) => Promise<void>
+  sleep: (ms: number) => Promise<void>
   commands: CommandHost
   publish: (snapshot: WorkitemsSnapshot) => Promise<void>
   publishChecked: (checked: WorkitemsChecked) => Promise<void>
@@ -83,7 +87,7 @@ export function pathAtRoot(root: string, relativePath: string): string {
   return `${root.replace(/[\\/]+$/, '')}/${relativePath}`
 }
 
-function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
+function filesAtRoot(host: ProviderHost, root: string, shared: SharedRead): TrackerFiles {
   async function statAt(relativePath: string): Promise<FileStat> {
     try {
       const { size, mtimeMs, kind } = await host.stat(pathAtRoot(root, relativePath))
@@ -189,6 +193,7 @@ function filesAtRoot(host: ProviderHost, root: string): TrackerFiles {
     stat: statAt,
     hash: hashAt,
     readUserFile,
+    shared,
     commands: {
       canRun: () => host.commands.canRun(),
       run: (argv, env) => host.commands.run(argv, root, env),
@@ -498,6 +503,15 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
   let tail: Promise<void> = Promise.resolve()
   let queued: Promise<void> | undefined
   let paused = false
+  const shared = createSharedRead({
+    folder: () => host.sharedFolder(),
+    now: () => host.now(),
+    read: (path) => host.read(path),
+    size: async (path) => (await host.stat(path)).size,
+    write: (path, text) => host.write(path, text),
+    sleep: (ms) => host.sleep(ms),
+    token: () => crypto.randomUUID(),
+  })
 
   function sinceOf(args: WorkitemsRefreshArgs | undefined): number {
     const since = args?.since ?? version
@@ -531,7 +545,7 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
   }
 
   async function inspect(root: string): Promise<Inspection> {
-    const files = filesAtRoot(host, root)
+    const files = filesAtRoot(host, root, shared)
     const lastFound = lastInspected?.root === root ? lastInspected.reader : undefined
     const [detection, lastFoundSignature] = await Promise.all([
       detect(readers, files),
@@ -654,7 +668,7 @@ export function createProvider(host: ProviderHost, readers: readonly Reader[]): 
     if (reader?.create === undefined) {
       return { created: false, reason: `handily creates no item in ${read.sourceLabel}` }
     }
-    const made = await reader.create(filesAtRoot(host, read.root), args.title)
+    const made = await reader.create(filesAtRoot(host, read.root, shared), args.title)
     if (made.created) await requestRead().catch(readAgainByThePoll)
     return made
   }

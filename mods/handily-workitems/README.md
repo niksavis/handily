@@ -50,12 +50,15 @@ gives other mods one typed list. It draws nothing of its own.
 - A repository whose ledger moved to a vault has a file `.basicly/ledger`, with the schema
   `basicly.tracker.frozen-ledger.v1`, in place of the folder. The mod reads it as a basicly
   tracker too. A change in the vault changes no file in the repository, so the poll reads such a
-  tracker again once in each 30 seconds, and the polls between run no command.
+  tracker again once in each 60 seconds, and the polls between run no command. The 60 second
+  steps start at the same wall-clock times in every session.
 - `basicly` and `basicly --version` run with `PYTHONDONTWRITEBYTECODE=1` and
   `PYTHONPYCACHEPREFIX` set to a new folder. The new folder does not exist, so Python never runs
   a cached `.pyc` file from the repo.
 - The mod runs the program path that the approval recorded. It checks the approval once for
   each read, before the call.
+- The sessions of one user share one read of each ledger state. See
+  [Shared read across sessions](#shared-read-across-sessions).
 - The mod reads only the open statuses. So when a record leaves them, for example when it is
   closed or deferred, `refresh()` reports it under `closed`, with the status `closed` and the
   last raw status that the mod read.
@@ -375,6 +378,44 @@ button of `board`.
   `checked` has the version of the snapshot.
 - The poll starts before the first refresh at session start, so a failed first refresh does
   not stop it.
+
+## Shared read across sessions
+
+`basicly tracker items` costs about 1.2 CPU seconds and 320 MB for each run (measured on
+handily-egnvhi). So all sessions of a user share one run for each ledger state.
+
+| File                                     | What it holds                                                         |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `~/.cache/handily/workitems/{hash}.json` | The output of the last run, the mark it was read under, and a SHA-256 |
+| `~/.cache/handily/workitems/{hash}.lock` | The session that runs the command now, and the time it took the lock  |
+
+- The mod uses `$XDG_CACHE_HOME` in place of `~/.cache` when it names an absolute folder.
+  With no home folder, the mod uses no cache and runs the command itself.
+- The hash is the SHA-256 of the real path of `.basicly/ledger`.
+- The mark holds the ledger stamp, the 60 second step for a vault ledger, the kit files, the
+  size and time of the `basicly` program, and the command.
+- A session reads the cache first. When the cache holds the same mark, the session uses it and
+  runs no command. The mod checks each item of the cache as it checks the command output.
+- Otherwise the session takes the lock, runs the command once, writes the cache and drops the
+  lock. A session that finds the lock held checks the cache again every 250 ms, for up to 30 s.
+  A lock that is 30 s old or older is stale, and the next session takes it over.
+- The mod API has no rename and no exclusive create. So the mod writes the cache in one write
+  with a SHA-256 of the output, and a session that reads a part-written file reads no cache.
+  The mod takes the lock with a write and a read back of its own token. When two sessions take
+  the lock in the same moment, both run the command. The result is one more run, never wrong
+  items.
+- Only a run that succeeds writes the cache. A session that cannot write the lock runs the
+  command itself.
+
+## Poll without a reader
+
+- The poll stops when no other mod read the work items for 5 minutes. A read is a
+  `$.state.get` of a `handily-workitems` value, or a call of `$.workitems.refresh`,
+  `$.workitems.lines` or `$.workitems.create`. The reads of the mod itself do not count.
+- The next read starts the poll again at once, and the mod reads the tracker in the same
+  moment. The read that started it gets the last snapshot.
+- A board or a toast that draws reads the snapshot each time, so the poll runs while one shows
+  the work items.
 
 ## Pause and resume
 

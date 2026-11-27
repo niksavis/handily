@@ -8,8 +8,9 @@ import {
   type MockClock,
   type Plugin,
 } from 'claude-code/testing'
+import { IDLE_AFTER_MS } from './hooks/register'
 import { DIFF_HISTORY_LIMIT, POLL_INTERVAL_MS } from './hooks/snapshot'
-import { advanceUntil } from './testing'
+import { advanceUntil, settleUntil } from './testing'
 import type {
   WorkitemsDiff,
   WorkitemsRefreshResult,
@@ -946,6 +947,68 @@ describe('unchanged poll', () => {
       expect(changed.checkedAt).toBe(102_000)
       expect(await snapshotStateVersionOf($)).toBe(published + 1)
       expect(await checkedOf($)).toEqual({ version: version + 1, at: 102_000 })
+    },
+  )
+})
+
+describe('poll without a reader', () => {
+  test(
+    'the poll stops after 5 minutes with no read by another mod, and a read of the snapshot starts it again at once',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 100_000 })
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      await clock.advance(IDLE_AFTER_MS)
+      const touched = world.touched.length
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      await clock.advance(10 * POLL_INTERVAL_MS)
+      expect(world.touched.length).toBe(touched)
+      const stoppedAt = clock.now()
+      expect((await snapshotOf($)).items.length).toBe(3)
+      const read = await settleUntil(
+        clock,
+        () => snapshotOf($),
+        (snapshot) => snapshot.items.length === 4,
+        'a read at once after the snapshot read',
+      )
+      expect(read.checkedAt).toBe(stoppedAt)
+      world.files.set(ISSUES, {
+        text: `${WITH_NEW_ITEM}\n{"id":"app-y","title":"Newer","status":"open"}`,
+        mtimeMs: 30,
+      })
+      const polled = await pollUntil(
+        $,
+        clock,
+        POLL_INTERVAL_MS,
+        (snapshot) => snapshot.items.length === 5,
+        'a poll read after the restart',
+      )
+      expect(polled.checkedAt).toBe(stoppedAt + POLL_INTERVAL_MS)
+    },
+  )
+
+  test(
+    'a call of $.workitems by another mod within 5 minutes keeps the poll running',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 100_000 })
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      const snapshot = await snapshotOf($)
+      await clock.advance(IDLE_AFTER_MS - 30 * POLL_INTERVAL_MS)
+      await headerTexts($, { snapshot, now: clock.now() })
+      await clock.advance(IDLE_AFTER_MS - 30 * POLL_INTERVAL_MS)
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      const reads = world.reads.length
+      await clock.advance(POLL_INTERVAL_MS)
+      await settleUntil(
+        clock,
+        () => Promise.resolve(world.reads.length),
+        (count) => count > reads,
+        'a poll read 8 minutes after the start',
+      )
+      expect(world.reads.slice(reads)).toEqual([ISSUES])
     },
   )
 })
