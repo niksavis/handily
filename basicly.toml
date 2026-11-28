@@ -113,7 +113,7 @@ inputs = ["mods/**", "probes/**", "scripts/**", "eslint.config.mjs", ".prettierr
 [[verify.checks]]
 name = "prettier-changed"
 command = ["node", "scripts/mods.mjs", "format-check", "--changed"]
-fix_command = ["npx", "--no-install", "prettier", "--no-error-on-unmatched-pattern", "--write", "mods", "probes", "scripts", "eslint.config.mjs"]
+fix_command = ["node", "scripts/mods.mjs", "format", "--changed"]
 modes = ["fast"]
 inputs = ["mods/**", "probes/**", "scripts/**", "eslint.config.mjs", ".prettierrc.json"]
 
