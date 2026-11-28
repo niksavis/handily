@@ -735,19 +735,27 @@ function isFormattedPath(path) {
 }
 
 function formatCheck(mods, options) {
-  const scope = taskScope('format-check', mods, options)
+  runPrettier('format-check', '--check', 'checks the format of', mods, options)
+}
+
+function format(mods, options) {
+  runPrettier('format', '--write', 'formats', mods, options)
+}
+
+function runPrettier(task, flag, verb, mods, options) {
+  const scope = taskScope(task, mods, options)
   if (scope === undefined) return
   const files = scope.all
     ? formattedRoots
     : scope.paths.filter((path) => isFormattedPath(path) && existsSync(join(root, path)))
-  reportChanged('format-check', scope, files.length, `checks the format of ${files.length} file(s)`)
+  reportChanged(task, scope, files.length, `${verb} ${files.length} file(s)`)
   if (files.length === 0) return
   const prettier = join(require.resolve('prettier/package.json'), '..', 'bin', 'prettier.cjs')
   run('prettier', process.execPath, [
     prettier,
     '--no-error-on-unmatched-pattern',
     '--ignore-unknown',
-    '--check',
+    flag,
     ...files,
   ])
 }
@@ -1569,6 +1577,7 @@ const changedTaskText = {
     none: 'checks the format of no file',
     full: 'checks the format of every file',
   },
+  format: { command: 'npm run format', none: 'formats no file', full: 'formats every file' },
 }
 
 function fullRunNote(task) {
@@ -1706,6 +1715,7 @@ const tasks = {
   lint,
   validate,
   'format-check': formatCheck,
+  format,
   test,
   'test-scripts': () => runScriptTests(),
   'test-times': writeTestTimes,
@@ -1724,13 +1734,14 @@ const taskArguments = {
   typecheck: changedArgument,
   lint: changedArgument,
   'format-check': changedArgument,
+  format: changedArgument,
   test: {
     shard: { type: 'string' },
     file: { type: 'string', multiple: true },
     changed: { type: 'boolean' },
   },
 }
-const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs <validate|typecheck|lint|format-check> [--changed], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>... | --changed], or ${testTimesCommand}`
+const usage = `usage: node scripts/mods.mjs <${Object.keys(tasks).join('|')}>, or node scripts/mods.mjs marketplace [--pin <mod>]... [--dry-run], node scripts/mods.mjs <validate|typecheck|lint|format-check|format> [--changed], node scripts/mods.mjs test [--shard <index>/<count> | --file <test file>... | --changed], or ${testTimesCommand}`
 
 function readTaskArguments(name, args) {
   try {

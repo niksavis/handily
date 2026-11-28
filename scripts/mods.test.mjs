@@ -1749,6 +1749,39 @@ test('format-check --changed checks every file when a root config path is staged
   assert.deepEqual(failLines(result), ['FAIL prettier: exit 1'])
 })
 
+test('format --changed formats only the staged files and leaves an unformatted file of another mod as it is', () => {
+  const repo = makeScopedRepo()
+  const broken = readFileSync(join(repo.root, 'mods/broken/hooks/register.ts'), 'utf8')
+  stageScoped(repo, { 'mods/clean/hooks/extra.ts': 'export const extra  =  1\n' })
+  const { result, output } = runScopedGate(repo, 'format')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'format: --changed formats 1 file(s) for 1 staged path(s); npm run format formats every file',
+    ),
+    output,
+  )
+  assert.equal(
+    readFileSync(join(repo.root, 'mods/clean/hooks/extra.ts'), 'utf8'),
+    'export const extra = 1\n',
+  )
+  assert.equal(readFileSync(join(repo.root, 'mods/broken/hooks/register.ts'), 'utf8'), broken)
+})
+
+test('format --changed runs no prettier when only documentation files outside the code folders are staged', () => {
+  const repo = makeScopedRepo()
+  stageScoped(repo, { 'docs/notes.md': '# notes\n', 'changelog.d/handily-x1.added.md': '- x\n' })
+  const { result, output } = runScopedGate(repo, 'format')
+  assert.equal(result.status, 0, output)
+  assert.ok(
+    outputLines(result).includes(
+      'format: --changed reaches nothing in 2 staged path(s), so it formats no file; npm run format formats every file',
+    ),
+    output,
+  )
+  assert.doesNotMatch(output, /prettier/)
+})
+
 test('format-check --changed in a pre-push hook checks only the files changed against origin/main', () => {
   const repo = makeScopedRepo()
   const pushRefs = pushScoped(repo, cleanChange)
