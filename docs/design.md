@@ -1696,7 +1696,9 @@ Each finding of the review, by lens and number, with its fix. "OQ" is an open qu
 - architecture nit 2, the pane and `board_read` can disagree: `board_read` answers the own
   session from memory.
 - simplicity nits: P6 is a check in C1, and its mode half is answered by the engine types. P7 is
-  a check in C6. P2 runs only on outcome B of P1. C3 is merged into C2.
+  a check in C6. P1 and P2 are dropped by Orchestrator decision of 2026-11-28: no agent
+  presses for the person, and a press on a task with `approves` only fills the prompt. C3 is
+  merged into C2.
 - spec 2 named C5 as the cut that waits for the hook. The Orchestrator named C2, which this
   version follows. The notes count of spec 2 is in `cue` and on the stale line (25.7).
 
@@ -1713,8 +1715,10 @@ facts, so the facts live in a file, and the pane is their view for a person.
 2. **For you takes a command as evidence.** The board keeps the commands that the person runs,
    next to the prompts it keeps today:
    - a slash command from `command.run` with origin `composer`;
-   - a `!` line, read from its transcript row (`<bash-input>`, `rowSource: "local"`) through
-     `$.session.messages` or the `session.append` hook. Probe P3 names the event.
+   - a `!` line, from its `<bash-input>` row at the `session.append` hook with door `command`.
+     Probe P3 (2026-11-28) measured it: a `!` line raises no `prompt.submit` and no
+     `command.run`, and the engine stamps the row origin `unclassified`, not `composer`. Only
+     the `!` mode of the person writes a `<bash-input>` row.
 
    It keeps at most 20 of them, since the oldest open task for the person, in memory, as it keeps
    prompts (`MAX_KEPT_PROMPTS`). A command of the board (`$.command.run`, register.tsx:1706) or a
@@ -1769,8 +1773,8 @@ facts, so the facts live in a file, and the pane is their view for a person.
 13. **One data model: the board file.** Each board writes one JSON file for its session. The pane
     draws the same facts from memory. Agents read the file or the new MCP tool `board_read`.
 14. **A press that approves an action.** `task_assign` gains `approves`, the exact action, such
-    as `git push origin v0.40.0`. Its buttons get no digit key. Probe P1 decides between a press
-    that sends (outcome A) and a press that fills the prompt (outcome B).
+    as `git push origin v0.40.0`. Its buttons get no digit key. In version 1 a press on such a task
+    fills the prompt box and sends nothing; the Enter of the person sends it as his message.
 15. **The close is enforced outside the mod.** The Stop hook ships as the basicly record
     basicly-7kxnrfj. Cut C2 is not done until that record lands ("Where the close is enforced").
 
@@ -2067,14 +2071,16 @@ docs.github.com/en/copilot/reference/hooks-configuration.
 - `session.append` text and hook context are never the words of the person (engine types).
 - `$.prompt.submit({ asUser: true })` reaches the model bare, but its origin stays
   `{ kind: 'plugin', asUser: true }` for every hook and provenance gate. No source says whether
-  the classifier is one of those gates. UNKNOWN.
-- **Probe P1** (tmux, auto mode, the installed board, a scratch repo with a scratch remote): Claude
-  asks a decide task with `approves: git push origin v0`. The press of `go` submits the
-  prompt. Then Claude runs the push. Read the verdict and the `PermissionDenied` reason.
-  - Outcome A, the push passes: the press keeps sending at once (25.6 A).
-  - Outcome B, the classifier blocks: a press on a task with `approves` fills the prompt and
-    the person sends it with Enter (25.6 B). Only then probe P2 checks that this prompt has
-    origin `composer`.
+  the classifier is one of those gates, and the design makes no claim that it counts.
+- **The approval path of version 1.** A press on a task with `approves` fills the prompt box with
+  `$.prompt.fill` and sends nothing. The Enter of the person submits it as his own message, which
+  the engine stamps origin `composer` (PromptOrigin: "Enter at the prompt, typed or queued").
+  No agent and no plugin presses anything that stands for the person.
+- **No agent probe of the classifier.** Probe P1 (an agent presses `go`, then tries a blocked
+  push) is dropped by Orchestrator decision of 2026-11-28: it would test whether an agent can
+  approve in the place of the owner, and classifier answers stay with the owner. P2 goes with it.
+  If the owner wants to measure a press, it becomes an owner probe in his own window, proposed to
+  the Orchestrator first.
 - The board never uses `tool.judge` to answer the classifier: that is enforcement. `consent` on
   `$.tool.call` covers only a call of the plugin itself, so it does not apply.
 
@@ -2126,13 +2132,11 @@ basicly-7kxnrfj is the enforcement.
 
 | Probe | Question | How |
 | --- | --- | --- |
-| P1 | Does an `asUser` prompt count as the person for the classifier? | above |
-| P2 | Only on outcome B of P1: has a filled prompt, sent by Enter, origin `composer`? | see below |
 | P3 | Which event carries a `!` line, and with which origin? | see below |
 | P4 | Does a built-in such as `/reload-plugins` raise `command.run`? | see below |
 | P5 | Does a mid-turn `$.session.append` row reach the model with the security plugin on? | below |
 
-- P2: a scratch mod logs the `prompt.submit` origin after `$.prompt.fill` and Enter.
+- P1 and P2: dropped (see "The auto mode classifier and a press").
 - P3: the same mod logs `prompt.submit`, `session.append` and `command.run`; type
   `! echo probe`.
 - P4: the same mod; type `/reload-plugins`.
@@ -2272,7 +2276,7 @@ meaning.
 
 | Cut | Scope |
 | --- | --- |
-| C0 | Probes P1, P3, P4, P5, and P2 only on outcome B of P1, recorded on handily-bx84cu |
+| C0 | Probes P3, P4 and P5, measured 2026-11-28 and recorded on handily-bx84cu |
 | C1 | The board file v 1, its writes, liveness, `board_read`, `/board file`, the README |
 | C2 | For you evidence, due, keep open, the due note, the hint lines, `approves` |
 | C4 | The goal and the tree, cancelled and obsolete, the refusals, `/board goal`, agents |
@@ -2283,8 +2287,8 @@ meaning.
 - C1 also holds the folder rule, the size cap, the masking, the heartbeat, the trailing write,
   the reader rule, the `jq` and prune lines, the torn-read check and the resume check.
 - C2 also holds the kept commands, `ran`, `person_rejected`, `ran in chat?`, the prompt count,
-  `[ close with this prompt ]`, `/board said`, `task_keep_open`, `/board keep`, and outcome A or
-  B of P1. C2 is not done until basicly-7kxnrfj lands.
+  `[ close with this prompt ]`, `/board said`, `task_keep_open`, `/board keep`, and the approval
+  path that fills the prompt. C2 is not done until basicly-7kxnrfj lands.
 - C5 folds handily-hxwjbf; its measure becomes the measure of C5.
 - C4 also holds `parent`, the derived status, the tree rows, agents under tasks, waiting agents
   in For you, the Agents block removed, and `a`.

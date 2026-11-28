@@ -11476,7 +11476,9 @@ Colours: as 20.1. The hint lines, the prompt count and the `cannot see` line dim
 - A command matches a `do` task when it equals a command line of the task after trimming, with a
   leading `!` and its space dropped, or when it is a slash command whose name, such as
   `/reload-plugins`, is in the title or the why of the task as a whole word.
-- Only a command or a prompt of origin `composer` counts: one that the person sent by Enter. A
+- A prompt or a slash command counts only with origin `composer`: one that the person sent by
+  Enter. A `!` line counts from its `<bash-input>` row at `session.append` with door `command`;
+  the engine stamps that row `unclassified`, not `composer` (probe P3, 2026-11-28). A
   command that the board runs (`$.command.run`), a prompt that the board sends and a Bash call of
   the model never count.
 - `N prompts since asked` counts the prompts of the person after the ask. A kept command makes a
@@ -11491,33 +11493,18 @@ Colours: as 20.1. The hint lines, the prompt count and the `cannot see` line dim
 
 ### 25.6 For you: approval by a press, and the auto mode classifier
 
-Task 8 carries `approves: git push origin v0.40.0`. Its buttons have no digit. Probe P1 decides
-which outcome ships.
-
-Outcome A: an `asUser` prompt counts as the words of the person for the classifier. The press
-sends at once, as 8.12k:
-
-```text
-╭─────────────────────────────────────────✕─╮
-│ For you  ◆ 1 open · 1 sent                │  outcome A of P1: one press approves
-│ ✓ 8 decide  Push tag v0.40.0 to origin?   │
-│     you chose · sent 12:20                │  origin plugin, asUser
-│     "go"                                  │
-│     approves: git push origin v0.40.0     │  field approves of task_assign
-│ ───────────────────────────────────────── │
-╰───────────────────────────────────────────╯
-```
-
-Outcome B: it does not count. A press on a task with `approves` fills the prompt box and does
-not send:
+Task 8 carries `approves: git push origin v0.40.0`. Its buttons have no digit. In version 1 a
+press on a task with `approves` never sends anything. It fills the prompt box
+(`$.prompt.fill`), and the Enter of the person sends the text as his own message. No agent and
+no plugin presses anything that stands for the person.
 
 ```text
 ╭─────────────────────────────────────────✕─╮
-│ For you  ◆ 1 open · 1 to send             │  outcome B of P1: the press fills
+│ For you  ◆ 1 open · 1 to send             │  the press fills; it does not send
 │ ✓ 8 decide  Push tag v0.40.0 to origin?   │
 │     you chose · in prompt box    [ undo ] │
 │     "go"                                  │
-│     press Enter to send it as your words  │  so auto mode reads it as the person
+│     press Enter to send it as your words  │  the Enter of the person sends it
 │ ───────────────────────────────────────── │
 ╰───────────────────────────────────────────╯
 ```
@@ -11528,13 +11515,26 @@ The prompt box after the press:
 > Decision on task 8, "Push tag v0.40.0 to origin?": "go". I approve this action: git push origin v0.40.0
 ```
 
+After the Enter of the person:
+
+```text
+╭─────────────────────────────────────────✕─╮
+│ For you  ◆ 0 open · 1 sent                │
+│ ✓ 8 decide  Push tag v0.40.0 to origin?   │
+│     you chose · sent 12:20                │  sent by your Enter, origin composer
+│     "go"                                  │
+│     approves: git push origin v0.40.0     │  field approves of task_assign
+│ ───────────────────────────────────────── │
+╰───────────────────────────────────────────╯
+```
+
 Colours: as 8.12k and 8.12l; `approves:` dim, the action plain.
 
-- A task with no `approves` keeps the press of 8.12k in both outcomes: nothing in it needs the
-  classifier.
-- In outcome B the row keeps `[ undo ]` until the prompt is sent. Probe P2, run only on outcome B,
-  checks that the board sees the Enter as a prompt of origin `composer`. Then the row shows
-  `you chose · sent 12:20`.
+- A task with no `approves` keeps the press of 8.12k: nothing in it asks the classifier.
+- The row keeps `[ undo ]` until the prompt is sent. The engine stamps a prompt sent by Enter at
+  the prompt, typed or filled, with origin `composer` (PromptOrigin in the engine types), so the
+  board then shows `you chose · sent 12:20`.
+- The design makes no claim that a press alone counts as the person for the classifier.
 
 ### 25.7 The goal tree
 
@@ -11942,7 +11942,7 @@ Outcome B, a stale tree with no goal, a subtask pressed open and an error:
 
 ```text
 ╭────────────────────────────────────────────────────────────────────────────✕─╮
-│ For you  ◆ 1 open · 1 to send                                                │  outcome B of P1
+│ For you  ◆ 1 open · 1 to send                                                │  the press fills the prompt
 │ ✓ 8 decide  Push tag v0.40.0 to origin?   you chose · in prompt box [ undo ] │
 │     "go" · press Enter to send it as your words                              │
 │ ──────────────────────────────────────────────────────────────────────────── │
