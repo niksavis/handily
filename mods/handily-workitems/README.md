@@ -415,6 +415,8 @@ handily-egnvhi). So all sessions of a user share one run for each ledger state.
 
 ## Poll without a reader
 
+- A session starts with one tracker read and no poll. The first read by another mod starts the
+  poll. So a session that shows no board and runs no other reader runs no tracker poll.
 - The poll stops when no other mod read the work items for 5 minutes. A read is a
   `$.state.get` of a `handily-workitems` value, or a call of `$.workitems.refresh`,
   `$.workitems.lines` or `$.workitems.create`. The reads of the mod itself do not count.

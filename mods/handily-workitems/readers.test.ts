@@ -893,6 +893,7 @@ describe('review regressions', () => {
     const clock = startClock(on)
     const world = fakeRepo(on, GENERIC_FIXTURE)
     await startedSnapshot($)
+    await clock.advance(0)
     const configReads = (): number =>
       world.reads.filter((path) => path === `${ROOT}/.handily.json`).length
     const before = configReads()

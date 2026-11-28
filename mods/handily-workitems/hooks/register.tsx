@@ -132,7 +132,7 @@ export const register: Register = (on) => {
     provider: undefined,
     idleTicks: 0,
     isConsumerSeen: false,
-    isIdle: false,
+    isIdle: true,
     lastPollFailure: null,
   }
   let approvals: Approvals | undefined
@@ -233,7 +233,7 @@ export const register: Register = (on) => {
     if (last?.state === 'paused') {
       await pause($, reads)
     } else {
-      startPoll(reads)
+      if (reads.poll === undefined) reads.isIdle = true
       await providerOf(reads)
         .refresh()
         .catch((error: unknown) => {

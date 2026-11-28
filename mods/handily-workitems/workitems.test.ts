@@ -779,6 +779,8 @@ describe('session start and directory changes', () => {
       on('fs.read', () => ({ value: FIXTURE_ISSUES }))
       const pollFailures = () => logs.filter((text) => text.includes('the poll refresh failed'))
       await startSession($)
+      await snapshotOf($)
+      await clock.advance(0)
       isDenied = true
       await clock.advance(5 * POLL_INTERVAL_MS)
       expect(pollFailures().length).toBe(1)
@@ -936,6 +938,7 @@ describe('unchanged poll', () => {
       await startSession($)
       const published = await snapshotStateVersionOf($)
       const { version } = await snapshotOf($)
+      await clock.advance(0)
       world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
       const changed = await pollUntil(
         $,
@@ -952,6 +955,22 @@ describe('unchanged poll', () => {
 })
 
 describe('poll without a reader', () => {
+  test(
+    'a session that no other mod reads runs no poll after its first refresh',
+    { plugins: [consumer] },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 100_000 })
+      const world = fakeWorld(on, clock, { [ISSUES]: { text: FIXTURE_ISSUES, mtimeMs: 10 } })
+      await startSession($)
+      const touched = world.touched.length
+      const reads = world.reads.length
+      world.files.set(ISSUES, { text: WITH_NEW_ITEM, mtimeMs: 20 })
+      await clock.advance(IDLE_AFTER_MS)
+      expect(world.touched.length).toBe(touched)
+      expect(world.reads.length).toBe(reads)
+    },
+  )
+
   test(
     'the poll stops after 5 minutes with no read by another mod, and a read of the snapshot starts it again at once',
     { plugins: [consumer] },
