@@ -11591,7 +11591,7 @@ The tree has not changed for an hour:
 │ ▾ ▶ 2 Keep the commands you run        1h │
 │     ▶ 5 Accept ran in ta…     stalled 58m │  as 8.2d3; the cut title is an expander
 │ ▸ ○ 3 Draw the goal tree · 2 tasks        │
-│ Claude got 3 notes and followed 1.        │  NEW: the note counts of cue
+│ Notes: 3 sent · 2 ignored · 1 followed.   │  NEW: the note counts of cue
 │ The next goes with its next tool result.  │  dim: the cue of 25.14 is on its way
 │ ───────────────────────────────────────── │
 ╰───────────────────────────────────────────╯
@@ -11614,7 +11614,7 @@ Tasks with no goal (a session that never called `goal_set`), fresh and stale:
 │ ▶ 1 Build the vitals line      stalled 1h │
 │ ○ 2 Wire the permission waits             │
 │ [ +2 done ]                               │
-│ Claude got 4 notes and followed 0.        │
+│ Notes: 4 sent · 4 ignored · 0 followed.   │
 │ ───────────────────────────────────────── │
 ╰───────────────────────────────────────────╯
 ```
@@ -11948,7 +11948,7 @@ Outcome B, a stale tree with no goal, a subtask pressed open and an error:
 │ ──────────────────────────────────────────────────────────────────────────── │
 │ Goal  none set · ◆ not changed for 1h 12m · 2/4 · tasks with no goal         │  a stale tree, no goal
 │ ▶ 1 Build the vitals line                                         stalled 1h │
-│ Claude got 4 notes and followed 0. The next asks for goal_set.               │
+│ Notes: 4 sent · 4 ignored · 0 followed. The next asks for goal_set.          │
 │ ──────────────────────────────────────────────────────────────────────────── │
 │   ▾ ▶ 5 Accept ran in task_close                                          6m │  a subtask pressed open
 │       started 12:41 · 9 tools · claude · why: task_close must take a command │

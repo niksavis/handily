@@ -2114,8 +2114,9 @@ The cue, in five parts:
 5. The due note: while a task for the person is due, the next tool result carries it, at most
    once in 20 tool calls. It names the ids, the prompt count and the two ways out.
 
-`cue.notes_sent` and `cue.notes_followed` show the owner whether the agent follows the list: the
-stale line of 25.7 reads `Claude got 3 notes and followed 1.`
+`cue.notes_sent` and `cue.notes_followed` show the owner whether the agent follows the list. The
+stale line of 25.7 shows the ignored count, sent less followed, in sight of the owner:
+`Notes: 3 sent · 2 ignored · 1 followed.`
 
 Target, measured with the same script on the next 12 sessions after the release: at most 1 stale
 session, and 85 percent or more of the notes followed within 3 model calls. The Stop hook of
