@@ -101,8 +101,8 @@
         "source": "git-subdir",
         "url": "https://github.com/niksavis/handily.git",
         "path": "mods/handily-workitems",
-        "ref": "handily-workitems--v0.9.2",
-        "sha": "3cfc00cff759838d451b3818318218dbf0016d83"
+        "ref": "handily-workitems--v0.9.3",
+        "sha": "2b9fe6adbcc3aca583c395635691d9c615c5e3de"
       },
       "description": "Provider of one typed work item list over any tracker, for other handily mods."
     }
