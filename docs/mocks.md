@@ -11027,9 +11027,10 @@ Colours: as 24.1.
 
 ## 25. handily-board: For you, the goal tree, expanders, usage and the board file (handily-bx84cu)
 
-Proposed on 2026-11-28 for the owner request of 11:45 UTC, relayed by the Orchestrator. Second
-version, after the swarm review of five lenses. Not approved: the owner decision comes first. The
-design text is in docs/design.md section 4.9, under "For you, the goal tree, the usage block and
+Decided on 2026-11-28 for the owner request of 11:45 UTC, relayed by the Orchestrator. Second
+version, after the swarm review of five lenses. The owner decided its open questions at 15:28 UTC
+("Accept all 7 as recommended"). The design text is in docs/design.md section 4.9, under "For you,
+the goal tree, the usage block and
 the board file", with the list of changes after the review.
 
 The person is the owner. He has one job on the board: see what waits for him, act on it, and see
@@ -11300,7 +11301,7 @@ Colours: `7d waived` plain; the ended lines dim.
 - The 5h verdict never changes with a waiver. While a waiver holds, a 7d `too fast` reads
   `7d waived` in the head; the details still show the 7d projection.
 - The board draws what the file says, with who set it. It draws no judgement of the writer: the
-  file is a pacing input, never an approval (design text, open question 4).
+  file is a pacing input, never an approval (design text, question 4, decided by the owner).
 
 ### 25.5 For you: evidence that the person acted
 
@@ -11717,22 +11718,6 @@ in `warning`; `stalled 58m` in `warning` as 8.2d3; `⊘` rows and the notes dim.
 ```
 
 Colours: as 14.1 E.
-
-The other option of open question 2, the Agents block kept but folded to one row (not
-recommended: the owner did not open it before, and a folded block hides the task each agent
-serves):
-
-```text
-╭─────────────────────────────────────────✕─╮
-│ Goal  2/5 · changed 4m ago                │  option B of question 2: the Agents
-│ Release the board redesign                │  block stays, folded to one row
-│ ▾ ▶ 2 Keep the commands you run       34m │
-│     ▶ 5 Accept ran in task_close       6m │
-│ ───────────────────────────────────────── │
-│ ▸ Agents  1 running · 1 failed            │  press: the rows of 14.1 E
-│ ───────────────────────────────────────── │
-╰───────────────────────────────────────────╯
-```
 
 - The summary row shows only when an agent runs, waits or failed. `/board stats` still prints
   every agent as text.

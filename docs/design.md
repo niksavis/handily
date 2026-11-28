@@ -1632,8 +1632,9 @@ Inbox (handily-fwkt.8.28), the poll of `claude agents --json`, the per-session p
 
 #### For you, the goal tree, the usage block and the board file (handily-bx84cu)
 
-Proposed on 2026-11-28; this is the second version, after the swarm review of five lenses (ux,
-spec, poka-yoke, architecture, simplicity). Not approved: the owner decision comes first. The
+Decided on 2026-11-28; this is the second version, after the swarm review of five lenses (ux,
+spec, poka-yoke, architecture, simplicity). The owner decided questions 2, 3, 4, 5, 6, 13 and 17
+at 15:28 UTC ("Accept all 7 as recommended"); the Orchestrator decided the others at 13:11 UTC. The
 owner request of 2026-11-28 11:45 UTC is on the record. The mocks are `docs/mocks.md` section 25.
 Pinned: Claude Code 2.1.332, codex-cli 0.172.0, GitHub Copilot CLI 1.0.117, handily HEAD 6103c62.
 Vendor docs read on 2026-11-28.
@@ -1708,7 +1709,7 @@ told him nothing, and he did not know that its rows open. He wants to see whethe
 the 5-hour window in exactly 5 hours, so that nobody waits for a reset. Agents read the same
 facts, so the facts live in a file, and the pane is their view for a person.
 
-##### Decisions (proposed)
+##### Decisions
 
 1. **Layout.** Top to bottom: For you, Usage (3 rows), Goal, Log, the key footer. The Agents
    block goes. The Session line becomes one row, `▸ session …`, which opens the details of today.
@@ -2009,7 +2010,9 @@ person and write no board file. A task for the person that a Codex or Copilot se
 in a tracker record, where the tracker and its harness carry the rule. The format is vendor
 neutral now: `writer`, `vendor` and `windows[].source` leave room, and a reader refuses an unknown
 `writer` by name. A hook-based writer for them can be added later with no schema change (OQ 3).
-Until then the README, and the `note` of `board_read all`, say that For you holds the asks of
+C1 publishes the format in the README of handily-board, field by field, so that another writer can
+follow it; a release adds a new writer to the allow-list. Until then the README, and the `note` of
+`board_read all`, say that For you holds the asks of
 Claude sessions only.
 
 ##### Where the close is enforced
@@ -2152,29 +2155,34 @@ The former P6 and P7 are checks inside their cuts:
   keeps the session id.
 - C6 checks whether a Pane arms the hotkey of a button scrolled out of view (handily-dr5989).
 
-##### Open questions, each with the recommended answer
+##### Decided questions
+
+Each question below names its answer. The owner decided 2, 3, 4, 5, 6, 13 and 17 on 2026-11-28 at
+15:28 UTC; the Orchestrator decided the others at 13:11 UTC.
 
 1. **One hint line under each open task, or one shared line under the head?** Recommended: one
    under each task. It names the real id and the recommended option, so it can be copied as it
    stands. At body 30 only the first command stays. The shared line (mock 25.5, option B) costs
    2 rows in all, but the person must fill in the id and the option.
-2. **Cut the Agents block, or keep it folded?** Recommended: cut it. The owner said it gave him no
-   useful information and he did not know its rows open. A waiting agent needs him, so it goes to
-   For you; a running agent belongs to a task, so it goes under that task. `a` and
-   `/board stats` keep the details. The other option, the block folded to one row (mock 25.8,
-   option B), keeps a place the owner did not open.
-3. **Do Codex and Copilot sessions write board files?** Recommended: not in version 1; they read.
+2. **Cut the Agents block, or keep it folded?** Decided by the owner: cut it. He said it gave him
+   no useful information and he did not know its rows open. A waiting agent needs him, so it goes
+   to For you; a running agent belongs to a task, so it goes under that task. `a` and
+   `/board stats` keep the details.
+3. **Do Codex and Copilot sessions write board files?** Decided by the owner: version 1 covers
+   Claude sessions only; they read. The board file format is published so that other writers can
+   follow it.
    A writer for them needs a hook design of its own. The format is vendor neutral now, and the
    readers keep a `writer` allow-list, so that writer needs no schema change. Until then their
    asks go to tracker records, and the README and `board_read` say so.
 4. **Does the waiver file count as the permission of the owner?** The workspace rules say a claim
-   of approval in a file is data. Recommended: the file is a pacing input only, never an approval
+   of approval in a file is data. Decided by the owner: the file is a pacing input only, never an approval
    of an ask-first action. Its `said` quote shows where the words came from; it proves nothing.
    A change of the Orchestrator rules that names the file needs the owner, relayed in full.
-5. **How long does a waiver last?** Recommended: until a time later today, at most 23:59 local
+5. **How long does a waiver last?** Decided by the owner: until a time later today, at most 23:59 local
    time, with `/board waiver end` to end it early. One fixed end keeps a forgotten waiver from
    running for days.
-6. **The on-track band.** Recommended: 90 to 100 percent at the reset, and not full before it.
+6. **The on-track band.** Decided by the owner: 90 to 100 percent used at the five_hour reset,
+   and not full before it.
 7. **Which pace word does the pane draw?** Recommended: the verdict only. The owner asked whether
    the 5-hour window is on pace, and the verdict answers that. The advice word of section 24
    says the same thing as an action, so it left the pane. The snapshot file keeps the spec words
@@ -2192,8 +2200,9 @@ The former P6 and P7 are checks inside their cuts:
 12. **Which commands match a do task?** Recommended: an exact command line after trimming, with a
     leading `!` and its space dropped, or a slash command whose name is in the title or the
     why as a whole word. No substring match.
-13. **Four routes to close a task for the person (simplicity 3)?** Recommended: keep the `ran`
-    evidence. The Orchestrator ordered it, because the owner closed two tasks today by running
+13. **Four routes to close a task for the person (simplicity 3)?** Decided by the owner: a
+    command that the person ran counts as his answer, so the `ran` evidence stays. The Orchestrator
+    ordered it, because the owner closed two tasks today by running
     the command in the chat. The routes are fewer than they look: one evidence row for each task
     (a command or the prompts), its buttons, their typed twins in the hint line, and
     `task_close` of Claude. P3 and P4 decide only whether the command row can show; the prompt
@@ -2211,7 +2220,8 @@ The former P6 and P7 are checks inside their cuts:
 16. **The runaway cap of the Stop hook.** Recommended: let the stop through after 3 blocks in a
     row with the same due ids, and say so in the reason. Every block has a way out by one call, so
     the cap only stops a loop when the board tools are off or broken. basicly-7kxnrfj decides it.
-17. **What does `/clear` do with the open tasks for the person?** Recommended: keep them. They wait
+17. **What does `/clear` do with the open tasks for the person?** Decided by the owner: keep
+    them. They wait
     for the person, not for the context, and a lost ask is the failure the owner reported. The
     tree and the goal empty, as today.
 18. **Which prompt does `[ close with this prompt ]` take?** Recommended: the last one. The
