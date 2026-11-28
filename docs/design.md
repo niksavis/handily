@@ -1630,6 +1630,411 @@ Inbox (handily-fwkt.8.28), the poll of `claude agents --json`, the per-session p
   desktop surface does not read the store, because `$.fs` on the desktop app is not measured.
 - **Escaping.** Every text from a file goes through `escaped`.
 
+#### For you, the goal tree, the usage block and the board file (handily-bx84cu)
+
+Proposed on 2026-11-28. Not approved: the Orchestrator swarm review and the owner decision come
+first. The owner request of 2026-11-28 11:45 UTC is on the record. The mocks are
+`docs/mocks.md` section 25. Pinned: Claude Code 2.1.332, codex-cli 0.172.0, GitHub Copilot CLI
+1.0.117, handily HEAD 6103c62. Vendor docs read on 2026-11-28.
+
+**The person and the task.** The owner uses For you most: it shows what waits for him. He does not
+use the task list, because it goes stale after about an hour. He does not use the agents area: it
+told him nothing, and he did not know that its rows open. He wants to see whether the work fills
+the 5-hour window in exactly 5 hours, so that nobody waits for a reset. Agents read the same
+facts, so the facts live in a file, and the pane is their view for a person.
+
+##### Decisions (proposed)
+
+1. **Layout.** Top to bottom: Usage (4 rows), For you, Goal, Log, the key footer. The Agents
+   block goes. The Session line becomes one row, `▸ session …`, which opens the details of today.
+2. **For you takes a command as evidence.** The board keeps the commands that the person runs,
+   next to the prompts it keeps today:
+   - a slash command from `command.run` with origin `composer`;
+   - a `!` line, read from its transcript row (`<bash-input>`, `rowSource: "local"`) through
+     `$.session.messages` or the `session.append` hook. Probe P3 names the event.
+   It keeps at most 20 of them, since the oldest open task for the person, in memory, as it keeps
+   prompts (`MAX_KEPT_PROMPTS`). A command of the board (`$.command.run`, register.tsx:1706) or a
+   Bash call of the model never counts.
+3. **`task_close` gains `ran` and `person_rejected`.** `ran` (one line, at most 400) is
+   checked literally against the kept commands, as `said` is checked against the kept prompts.
+   `person_did` takes `said` or `ran`. `person_rejected` takes `said` or `ran` and closes
+   with the result `rejected`, so the person sees "you rejected". `not_needed` with a note stays
+   the close for a task that is done by other means, obsolete or cancelled.
+4. **The board asks, it does not close.** When a kept command matches an open `do` task, the
+   board shows `ran in chat?` with `[ close as done ]` and `[ still open ]`, the ask of 20.10.
+   The note to Claude names the commands, so Claude can close the task with `ran`.
+5. **A hint line under each open task for the person** names the exact commands:
+   `/board done 7 · /board reject 7`, `/board answer 10 your words`, `/board pick 8 1` with the
+   recommended option. The hint is the path that always works, also when probe P3 or P4 fails.
+6. **A goal and a tree.** A new model tool `goal_set` (text at most 200, optional `done_when` at
+   most 200) sets the one goal of the session. `task_add` and `task_update` gain an optional
+   `parent` (the id of a task with no parent). A parent has no status of its own: it is done when
+   all its subtasks are done, and doing when one is doing. One level of subtasks.
+7. **Agents live in the tree.** An agent row stands under the task that was in progress when the
+   agent started. A waiting agent is a row of For you. `a` opens the agent rows of 14.1 E.
+8. **Expanders everywhere a row is cut.** A cut row ends with `…` and is a Button. A press or
+   Enter opens the whole text below it, and the focus stays. The log keeps up to 4,000 characters
+   and every line of each event, with credentials masked, in place of the first line and 200
+   characters (`logDetail`, log.ts).
+9. **The Usage block.** It shows a verdict for the 5-hour window (`on track`, `too fast`,
+   `slow`, `no pace yet`), the projection at the reset for both windows, and the `7d room`: how
+   many full 5-hour windows the 7-day window still holds. Beside the verdict it draws the advice
+   of section 24 (`start`, `hold`, `close idle`): `on track` comes with `hold`, `too fast` with
+   `close idle`, `slow` with `start`. The source is the `rateLimits` of `session.measure` and
+   `$.session.usage()`, as today (pace.ts, usage-snapshot.ts). No number comes from basicly.
+10. **The 7-day waiver.** `w` asks. `Until 23:59 today` writes the waiver file and fills the prompt
+    box with the sentence of the person. The board never submits it.
+11. **One data model: the board file.** Each board writes one JSON file for its session. The pane
+    draws the same facts from memory. Agents read the file or the new MCP tool `board_read`.
+12. **A press that approves an action.** `task_assign` gains `approves`, the exact action, such as
+    `git push origin v0.40.0`. Probe P1 decides between a press that sends (outcome A) and a press
+    that fills the prompt (outcome B).
+
+##### The verdict of the 5-hour window
+
+| Verdict | Rule |
+| --- | --- |
+| `too fast` | the projected full time comes before the reset; the head names the wait: reset minus full time |
+| `on track` | the projection at the reset is 90 to 100 percent, and the window does not fill before the reset |
+| `slow` | the projection at the reset is below 90 percent; the row names the unused share |
+| `no pace yet` | the rules of 8.15e give no projection |
+
+- The projection is the one of 24.3: the 5h rate over the readings of the last 60 minutes when
+  they span 15 minutes, else the window average.
+- `~6% each`: the rise of the 7d window over the rise of the 5h window, over readings where both
+  rose, for 30 minutes or more. `7d room` is `(100 - 7d used) / that share`, rounded down.
+- The 7d verdict shows in the head only as `too fast`, when its projection at the reset is over
+  100 percent.
+
+##### The board file
+
+**Path.** `<state>/handily/boards/<session id>.json`. `<state>` is `HANDILY_STATE_DIR` when set,
+else on Windows `LOCALAPPDATA`, else `XDG_STATE_HOME` when absolute, else
+`HOME/.local/state`. The folder rule of the usage snapshot (`folderRule` in
+usage-snapshot.ts) applies, with its refusal of a relative path. The session id is checked
+against `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, the name rule of store.ts.
+
+**Writer.** Only the board of that session writes it, with `$.fs.write`, in place, after each
+change of the goal, a task, a task for the person or an agent, at most once every 5 seconds, and
+at session end with `ended_at`. No other process writes it.
+
+**Schema, v 1:**
+
+```json
+{
+  "format": "handily.board",
+  "v": 1,
+  "writer": "handily-board",
+  "session": "3f2a9c1e-…",
+  "vendor": "claude",
+  "project": "handily",
+  "name": "landing",
+  "updated_at": 1795876800,
+  "ended_at": null,
+  "goal": {
+    "text": "Release the board redesign",
+    "done_when": "the release is pinned",
+    "set_at": 1795870000,
+    "done_at": null
+  },
+  "tasks": [
+    { "id": 2, "parent": null, "title": "Keep the commands you run", "status": "in_progress",
+      "by": "model", "item": null, "started_at": 1795874760, "ended_at": null },
+    { "id": 5, "parent": 2, "title": "Accept ran in task_close", "status": "in_progress",
+      "by": "model", "item": null, "started_at": 1795876440, "ended_at": null }
+  ],
+  "for_person": [
+    { "id": 7, "kind": "do", "title": "Reload the board plugin", "why": null,
+      "options": [], "recommended": null, "approves": null, "commands": [],
+      "asked_at": 1795873000, "state": "open", "result": null },
+    { "id": 8, "kind": "decide", "title": "Push tag v0.40.0 to origin?", "why": null,
+      "options": ["go", "not now"], "recommended": 1, "approves": "git push origin v0.40.0",
+      "commands": [], "asked_at": 1795873100, "state": "closed",
+      "result": { "verb": "rejected", "by": "claude", "how": "person_rejected",
+                  "said": "no, skip the tag today", "ran": null, "note": null,
+                  "at": 1795875000 } }
+  ],
+  "agents": [
+    { "id": "a1b2c3d4", "name": "scout", "state": "needs-you", "task": 5,
+      "waits_for": "permission: Bash npm test", "since": 1795876700 }
+  ],
+  "cue": {
+    "tree_changed_at": 1795872480,
+    "calls_since_change": 41,
+    "last_person_prompt_at": 1795876200,
+    "for_person_checked_at": 1795876000
+  },
+  "usage": {
+    "at": 1795876800,
+    "five_hour": { "used": 62, "resets_at": 1795884900, "projected": 97,
+                   "full_at": null, "verdict": "on track" },
+    "seven_day": { "used": 31, "resets_at": 1796150000, "projected": 58,
+                   "full_at": null, "verdict": "on track" },
+    "seven_day_per_full_five_hour": 6,
+    "seven_day_room_windows": 11,
+    "advice": "hold",
+    "waiver": { "until": 1795906740, "said_at": 1795876290, "by": "board-press" }
+  },
+  "usage_file": "<state>/basicly/usage-snapshots/handily-board.json",
+  "waiver_file": "<state>/handily/seven-day-waiver.json"
+}
+```
+
+- Times are whole epoch seconds of `$.clock`. Unknown keys are ignored by readers. A reader
+  refuses a file of another `format` or `v` by name.
+- `status` is `pending`, `in_progress`, `completed` (BoardStatus). `state` of a task for the
+  person is `open` or `closed`. `result` is BoardResult, with `ran` added.
+- `cue` holds the numbers that a harness hook needs (see "Where the close is enforced").
+- `usage` holds what the pane shows: the used and projected percent, the full time, the verdict of
+  each window, the 7d share of one full 5h window, the room, the advice and the waiver. So an
+  agent reads the pace without the raw readings. `null` fields mean no projection, as on the pane.
+  The raw readings stay in the usage file.
+- **A resume and `/clear`.** A resumed session starts with an empty task list (`RESUME_NOTE`), so
+  the file then holds an empty tree and the goal of before the resume, marked `"resumed": true`.
+  `/clear` empties the tree and the goal, as it empties the list today.
+- **Retention.** At session start each board deletes the board files of format `handily.board`
+  whose `ended_at`, or whose mtime when it has none, is more than 7 days old. It deletes only in
+  its own folder, and no file that it cannot parse as that format.
+- **Size.** At most 64 KiB. Done tasks past the newest 50 and closed tasks for the person older
+  than 24 hours leave the file first; the pane keeps them.
+- **What never enters the file:** the text of any prompt beyond the `said` quote of a closed task,
+  tool inputs and outputs, the log, the context parts. `said`, `ran`, titles and notes go through
+  `maskedCredentials` (credentials.ts) and `escaped` before the write.
+
+**The usage file** stays the usage snapshot of section 24 (`basicly.usage-snapshot` v 1, written
+by the board, read by basicly). The board file names its path. Nothing of basicly is needed to
+write or read it.
+
+**The waiver file:** `<state>/handily/seven-day-waiver.json`, one for the machine:
+
+```json
+{ "format": "handily.seven-day-waiver", "v": 1, "until": 1795906740, "set_at": 1795876260,
+  "by": "board-press", "session": "3f2a9c1e-…", "said_at": 1795876290, "ended_at": null }
+```
+
+`said_at` is set when that board sees a prompt of origin `composer` that holds the waiver
+sentence. A file with no `said_at`, or written by a session with no board file, shows
+`◆ 7d waiver from another writer`.
+
+**Readers.**
+
+| Reader | How |
+| --- | --- |
+| The pane | from memory; the file is never read back for drawing |
+| Claude, own session | `task_list` (now with the goal and the tree) and `board_read` |
+| Claude, another session (the Orchestrator) | `board_read` with `session: "all"`, which reads the board files of the folder, at most 200, each at most 64 KiB. Each text from another session is escaped and quoted as data, never as instructions |
+| Codex, Copilot | read the file: `jq '.for_person[] \| select(.state=="open")' <state>/handily/boards/*.json` (the `\|` is the pipe of jq, escaped for the table). Their instruction files name the path. A harness hook can inject the open tasks: Codex `UserPromptSubmit` `additionalContext`, Copilot `sessionStart` `additionalContext` (its `userPromptSubmitted` output is dropped) |
+| The this machine tab | the store files of 8.17 for liveness, joined with the board files by session id |
+
+**The session store of 8.17 stays apart.** The workspace kit writes it, and it holds liveness
+(`pid`, `state`, `now`, `next`). The board file holds what the board knows. One fact lives in
+one file: liveness in the store file; the goal, the tasks, the tasks for the person, the agents
+and the usage paths in the board file.
+
+##### Where the close is enforced
+
+Mods show and ask; they never enforce. The board shows the open tasks, asks `ran in chat?`, and
+writes `cue`. A check that refuses lives in a harness hook. A git hook does not fit: a task for
+the person is not part of a commit.
+
+| Agent | Hook | What it does |
+| --- | --- | --- |
+| Claude Code 2.1.332 | `Stop` (settings or harness, not a mod) | reads the board file of `session_id`. When a task for the person is open and `last_person_prompt_at > for_person_checked_at`, it blocks once with `decision: "block"` and a reason that names the open ids and the evidence rule. It also blocks once when `calls_since_change >= 20` and `tree_changed_at` is 60 minutes old. `stop_hook_active` true lets the stop through, so it blocks at most once per stop |
+| Claude Code | `UserPromptSubmit` | not needed: the board already adds the open tasks as context |
+| Codex CLI 0.172.0 | `Stop` | `decision: "block"` makes `reason` a continuation prompt. It needs a board file of the Codex session, which exists only after open question 3 |
+| Codex CLI | `UserPromptSubmit` | `additionalContext` with the open tasks for the person from the board file of the Orchestrator |
+| Copilot CLI 1.0.117 | `agentStop` | blocks and forces a continuation; after 8 blocks in a row the CLI ends the turn |
+| Copilot CLI | `sessionStart` | `additionalContext`; `userPromptSubmitted` cannot add context or block |
+
+**Codex and Copilot in version 1.** They cannot call `task_assign`, so they hold no task for the
+person and write no board file. Their Stop or agentStop hook has nothing of the board to check. A
+task for the person that a Codex or Copilot session needs goes in a tracker record, where the
+tracker and its harness carry the rule. They can read the board files of Claude sessions, and a
+harness hook can show them the open tasks of the Orchestrator. A check for them needs open
+question 3 decided first: this item is `needs decision`.
+
+`for_person_checked_at` is the time of the last `task_list`, `task_close` or `task_assign` call
+of the main loop. The hooks belong in the basicly harness or in the settings of the person. This
+design writes the fields they read and names the rule in the README. It ships no hook.
+
+Sources: code.claude.com/docs/en/hooks (Stop, UserPromptSubmit), learn.chatgpt.com/docs/hooks
+(Codex; read through a summary, a browser read still has to quote it), and
+docs.github.com/en/copilot/reference/hooks-configuration.
+
+##### The auto mode classifier and a press
+
+- The classifier judges tool calls. It reads the messages of the person. A message that names the
+  action and its details can clear a block for that one action (permission-modes, "Approvals you
+  state in conversation"). It lets the intent of the person lift a soft deny only, never a hard
+  deny or a `permissions.deny` rule.
+- `session.append` text and hook context are never the words of the person (engine types).
+- `$.prompt.submit({ asUser: true })` reaches the model bare, but its origin stays
+  `{ kind: 'plugin', asUser: true }` for every hook and provenance gate. No source says whether
+  the classifier is one of those gates. UNKNOWN.
+- **Probe P1** (tmux, auto mode, the installed board, a scratch repo with a scratch remote): Claude
+  asks a decide task with `approves: git push origin v0`. The press of `go` submits the
+  prompt. Then Claude runs the push. Read the verdict and the `PermissionDenied` reason.
+  - Outcome A, the push passes: the press keeps sending at once (25.6 A).
+  - Outcome B, the classifier blocks: a press on a task with `approves` fills the prompt and
+    the person sends it with Enter (25.6 B). Probe P2 checks that this prompt has origin
+    `composer`.
+- The board never uses `tool.judge` to answer the classifier: that is enforcement. `consent` on
+  `$.tool.call` covers only a call of the plugin itself, so it does not apply.
+
+##### The cue that keeps the tree current
+
+Baseline, measured on 2026-11-28 (`bx84cu-staleness.py`, 12 sessions of 2026-11-27 and
+2026-11-28 that called a board task tool):
+
+- 3 of 12 sessions went stale (60 minutes or more of other tool calls with no task tool call):
+  share 0.25. Median time to the first stale moment: 134.9 minutes (109.7, 134.9, 550.7).
+- 22 board notes; 15 (68 percent) were followed by a task tool call within 3 model calls.
+- The two worst sessions got no note at all. Their stale gaps held only peer prompts: basicly
+  5bfe7bc2 from 11:59 to 14:07 UTC, 35 prompts of origin `peer`; handily 68eef988 from 12:24
+  to 14:22 UTC, 15 of origin `peer`, 2 `!` rows and 1 task notification. Both gaps came before
+  handily-board 0.39.1 (published 15:07 UTC on 2026-11-27), the first release that sends the
+  note with a peer prompt (handily-hxwjbf).
+- Split at 0.39.1: the 7 sessions that started after it had no stale case, but the longest ran
+  only 132 minutes, about the median time to the first stale moment. On 2026-11-28, 7 of 13 notes
+  were followed (54 percent). The 68 percent rests on the Orchestrator session of 2026-11-27, which
+  followed 8 of 9.
+- So no measured stale gap lacked prompts. The note with a tool result is a guard for a long run
+  with no prompt, not a measured fix. The concrete note aims at the low follow rate.
+
+The cue, in three parts:
+
+1. Keep the note of 0.39.1 on every prompt origin.
+2. Send the note also with the next tool result, through `$.session.append`, when the tree has not
+   changed for 20 tool calls (`PLAN_WARNING_CALLS`) or for 30 minutes of tool calls. A long run
+   with no prompt then still gets it. The engine types say a user row "right behind tool results
+   is a system message". Probe P5 checks it under the organization security plugin, which skips
+   some hooks.
+3. Make the note concrete: it names the goal, the task in progress and its age, and the exact
+   call (`task_update 5 completed`, `task_add parent 2`), as in 25.14.
+
+Target, measured with the same script on the next 12 sessions after the release: at most 1 stale
+session, and 85 percent or more of the notes followed within 3 model calls. The harness Stop hook
+is the enforcement for a person who wants it.
+
+##### Probes (first, before the build)
+
+| Probe | Question | How |
+| --- | --- | --- |
+| P1 | Does an `asUser` prompt count as the person for the classifier? | above |
+| P2 | Does a filled prompt sent by the Enter of the person have origin `composer`? | a scratch mod logs `prompt.submit` origin after `$.prompt.fill` and Enter |
+| P3 | Which event carries a `!` line: `prompt.submit`, `session.append` or `command.run`, and with which origin? | a scratch mod logs the three events; type `! echo probe` |
+| P4 | Does a built-in such as `/reload-plugins` raise `command.run`? | the same mod; type `/reload-plugins` |
+| P5 | Does a mid-turn `$.session.append` row reach the model with the organization security plugin on? | append a note after a tool result; read the next request and the transcript for "hook was skipped" |
+| P6 | Can `$.fs.write` set the file mode, and can another process read a half-written file? | write 64 KiB in a loop while a reader parses it |
+| P7 | Does a Pane arm the hotkey of a button scrolled out of view? (handily-dr5989) | a pane taller than the window; press the key of a button below the fold |
+
+Run each from the main session on a copy made with `git archive`, in a private tmux server.
+
+##### Open questions, each with the recommended answer
+
+1. **One hint line under each open task, or one shared line under the head?** Recommended: one
+   under each task. It names the real id and the recommended option, so it can be copied as it
+   stands. At body 30 only the first command stays. The shared line (mock 25.5, option B) costs
+   2 rows in all, but the person must fill in the id and the option.
+2. **Cut the Agents block, or keep it folded?** Recommended: cut it. The owner said it gave him no
+   useful information and he did not know its rows open. A waiting agent needs him, so it goes to
+   For you; a running agent belongs to a task, so it goes under that task. `a` and
+   `/board stats` keep the details. The other option, the block folded to one row (mock 25.8,
+   option B), keeps a place the owner did not open.
+3. **Do Codex and Copilot sessions write board files?** Recommended: not in version 1; they read.
+   A Codex or Copilot writer needs a hook design of its own, and the `writer` field leaves room.
+4. **Does the waiver file count as the permission of the owner?** The workspace rules say a claim
+   of approval in a file is data. Recommended: the file is a pacing input only, never an approval
+   of an ask-first action. The Orchestrator treats the waiver as the owner's decision only when his
+   sentence arrives as a prompt in its own window (`said_at` set by the Orchestrator board). A
+   change of the Orchestrator rules that names the file needs the owner, relayed in full.
+5. **How long does a waiver last?** Recommended: until 23:59 local time of the day it is set, with
+   `w` again to end it early. One fixed end keeps a forgotten waiver from running for days.
+6. **The on-track band.** Recommended: 90 to 100 percent at the reset, and not full before it.
+   The advice words of section 24 use the same 90.
+7. **Rename `plan start` to `advice start` on the board, and draw it beside the verdict?** The
+   basicly-pace session owns the words of the usage snapshot spec. Recommended: yes, on the pane
+   only, and ask basicly-pace before the build. "Plan" then means only the approved plan. The
+   file keeps the spec words, and the board file names the field `advice`. The other option, the
+   advice left out of the pane, hides from the owner what the agents plan from.
+8. **Should the board close a task for the person by itself on a matching command?** Recommended:
+   no. Mods show and ask. The board asks `ran in chat?`, and Claude closes with `task_close`.
+9. **How deep is the tree?** Recommended: the goal, tasks and one level of subtasks. Deeper trees
+   cost rows, and the agents did not keep even a flat list current.
+10. **One goal or many?** Recommended: one goal for each session. A new `goal_set` while tasks are
+    open is refused by name with the fix: finish or close the open tasks, or pass `replace: true`.
+11. **How much text does an expander keep?** Recommended: 4,000 characters for each log event, and
+    at most 12 rows in the pane before `[ all N lines ]`.
+12. **Which commands match a do task?** Recommended: an exact command line after trimming, with a
+    leading `!` and its space dropped, or a slash command whose name is in the title or the
+    why as a whole word. No substring match.
+
+##### Failure modes
+
+- **A narrow dock.** Below body 41 the gauges, `(~6% each)`, `recommended` and the second hint
+  command drop. Below body 30 the hint keeps only `/board done N`. A verdict, a mark and an id are
+  never cut.
+- **A long title or goal.** It is cut with `…` and opens whole. A title over 200 characters is
+  refused by the tool, as today.
+- **Colour blindness and light themes.** Every mark has a word: `✓ on track`, `◆ too fast`,
+  `○ slow`. In light themes `claude` and `warning` look alike (12.1); the words tell them apart.
+- **A screen reader or a pipe.** `/board goal`, `/board list`, `/board stats` and `/board log`
+  print the same facts as text. The hint lines are plain commands.
+- **The probe fails.** With P3 or P4 failed, the board sees no command, shows the `cannot see`
+  line once, and `task_close` refuses `ran` by name:
+  `task_close refused: the board cannot see the commands that the person runs on this version.
+  Ask the person to run /board done 7.`
+- **A forged waiver.** Any local process can write the waiver file. The board shows a file with no
+  `said_at` as `◆ 7d waiver from another writer`. The 5h verdict never changes.
+- **A half-written file.** `$.fs.write` writes in place, with no rename. A reader that fails to
+  parse reads again after 200 ms, then counts the file as missing for this read. `board_read` says
+  `3f2a…: not readable now (half written?)`.
+- **Secrets in the file.** Titles, `said`, `ran` and notes pass `maskedCredentials` first. A
+  secret in a shape that the mask does not know can still land in the file. The folder sits in the
+  state folder of the user. P6 checks whether the mode can be 0600.
+- **Two boards write one waiver at the same moment.** The engine has no compare-and-set. The later
+  write wins; both write the same `until`.
+- **A session that never sets a goal.** The tree shows `Goal  none set`, the flat list of today.
+  The note names `goal_set` once.
+- **The cue becomes noise.** At most one note in 20 tool calls, and none while the tree changes.
+  `Do not reply about this note.` closes every note.
+- **A dropped mouse press.** The host drops a press whose release lands one cell away
+  (handily-kkzm06). Every press has a key and a command.
+- **No limits.** Off a subscription, `rateLimits` is empty: `Usage  limits: none reported`, no
+  verdict, no waiver.
+
+##### The cuts of the build (each about a day)
+
+| Cut | Scope | Records |
+| --- | --- | --- |
+| C0 | Probes P1 to P7, recorded on handily-bx84cu (half a day) | - |
+| C1 | The board file v 1: folder rule, writer, size cap, masking; `board_read`; `/board file`; README with the path and a `jq` line | - |
+| C2 | For you evidence: kept commands, `ran`, `person_rejected`, `ran in chat?`, the hint lines, the note names the commands | - |
+| C3 | Approval: `approves` on `task_assign`, and outcome A or B of P1 | - |
+| C4 | The goal and the tree: `goal_set`, `parent`, derived status, the tree rows, agents under tasks, waiting agents in For you, the Agents block removed, `a` | - |
+| C5 | The cue: the concrete note, the tool-result note by `$.session.append`, the `cue` fields; then the measure on 12 sessions | handily-hxwjbf |
+| C6 | Expanders and the fit: the expander rule, the log keeps 4,000 characters, the fit to the pane height, the key footer and `h`, copy as Markdown | handily-bxfx7w, handily-dr5989, handily-tzqb8p |
+| C7 | The Usage block: verdicts, `7d room`, the waiver ask, file and fill, `/board waiver`; the live check of the projection and the toast | handily-eh6mbu |
+
+Order: C0, C1, C2, C3, C4, C5, C6, C7. For you comes first because the owner uses it most. Each
+cut is one record, one branch and one release, with a live tmux check of the installed plugin.
+The harness hooks are a record in the basicly tracker, not in handily.
+
+##### Records
+
+| Record | State today | In this design |
+| --- | --- | --- |
+| handily-hxwjbf | two cuts released (0.35.1, 0.39.1); measure of 3 worker sessions open | folds into C5; its measure becomes the measure of C5 |
+| handily-kwl9m1 | released in 0.39.0; live check open | stays; C4 adds `parent` to the fields it lists |
+| handily-eq3pqp | released in 0.38.0; live check open | stays; C2 matches `ran` against its command lines |
+| handily-8gg9ro | released in 0.39.2; live check open; `task_list` still doubles a backslash | stays; the board file writes the raw lines |
+| handily-dr5989 | open, not built | folds into C6 |
+| handily-h4zh9h | open, not built | stays; its history rows read the ended board files, not a new CSV |
+| handily-tzqb8p | open, not built | folds into C6 (`[ c: copy ]` on the opened task) |
+| handily-bxfx7w | open, not built | folds into C6, with the fold order of 25.10 |
+| handily-eh6mbu | open, deferred | folds into C7: the live check of the Usage block covers it |
+| handily-wch3o5 | F7 released in 0.35.2; F1, F3, F4, F5, F8, F11, F12 open | F1 and F8 fold into C6; F3, F4, F5, F11, F12 stay |
+
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
 The person approved the design on 2026-10-27 (handily-5zzxk.2). reply-view draws the tables,
