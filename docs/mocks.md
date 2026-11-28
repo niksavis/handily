@@ -11033,6 +11033,20 @@ version, after the swarm review of five lenses. The owner decided its open quest
 the goal tree, the usage block and
 the board file", with the list of changes after the review.
 
+The answers of the owner, 2026-11-28 15:28 UTC:
+
+1. Version 1 covers Claude sessions only. The board file format is published so that other
+   writers can follow it (25.14, design "Codex and Copilot").
+2. The Agents block is cut (25.1, 25.8).
+3. The 7-day waiver is a pacing input only, never an approval (25.4).
+4. A waiver ends at 23:59 local time, or earlier with `/board waiver end` (25.4, 25.14).
+5. On track means 90 to 100 percent used at the five_hour reset (25.3).
+6. A command that the person ran counts as his answer (25.5).
+7. Open tasks for the person stay after `/clear` (design "A resume and /clear").
+
+Owner finding of 15:45 UTC: a confirmation says what happened now and when Claude sees it, not
+"Claude is told at your next prompt" (design decision 16, cut C2a).
+
 The person is the owner. He has one job on the board: see what waits for him, act on it, and see
 whether the work runs at the right pace. He looks first at For you, so For you is the top block.
 Agents are the second reader: they read the same facts from the board file, never from the
@@ -11349,8 +11363,8 @@ A prose answer. The person answered in the chat and pressed nothing. Each open `
 ╰───────────────────────────────────────────╯
 ```
 
-After `[ close with this prompt ]` on both. The close waits for the next prompt, as `[ done ]`
-does today (20.5), and `[ undo ]` takes it back:
+After `[ close with this prompt ]` on both. The close is sent as decision 16 of the design says,
+and `[ undo ]` takes it back until Claude sees it:
 
 ```text
 ╭─────────────────────────────────────────✕─╮

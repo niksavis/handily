@@ -1641,13 +1641,13 @@ Vendor docs read on 2026-11-28.
 
 ##### Changes after the swarm review
 
-Each finding of the review, by lens and number, with its fix. "OQ" is an open question below.
+Each finding of the review, by lens and number, with its fix. "OQ" is a decided question below.
 
 - ux 1, prose answers leave For you stale: decision 3. Every open do or answer task shows
   `N prompts since asked`, the last prompt behind an expander, and `[ close with this prompt ]`
   with its twin `/board said N` (25.5).
 - ux 2, spec 2, poka-yoke 1 and 2, the close is not enforced and `task_list` defeats the check:
-  decisions 6 and 15. The Stop hook ships as basicly-7kxnrfj, and cut C2 is not done until it
+  decisions 6 and 15. The Stop hook ships as basicly-7kxnrfj, and cut C2e is not done until it
   lands. Only `task_close` or `task_keep_open` with a reason clears a due task. The hook blocks
   again while a task is due. A due note goes with a tool result every 20 calls, for long runs.
 - ux 3, architecture 1, the file goes stale and the hook reads old cue values: "Writer". A person
@@ -1777,7 +1777,14 @@ facts, so the facts live in a file, and the pane is their view for a person.
     as `git push origin v0.40.0`. Its buttons get no digit key. In version 1 a press on such a task
     fills the prompt box and sends nothing; the Enter of the person sends it as his message.
 15. **The close is enforced outside the mod.** The Stop hook ships as the basicly record
-    basicly-7kxnrfj. Cut C2 is not done until that record lands ("Where the close is enforced").
+    basicly-7kxnrfj. Cut C2e is not done until that record lands ("Where the close is enforced").
+16. **A confirmation says what happened now.** After a press or a `/board` command, the reply
+    names the change, such as `Task 3 is done.`, and says plainly when Claude sees it. While
+    Claude works, the note goes with the next tool result through `$.session.append` (probe P5),
+    and the reply says `Claude sees it with its next tool result.` While Claude is idle, the
+    reply says `Claude sees it when you send your next message.` The board sends no prompt for
+    the person. Owner finding of 2026-11-28 15:45 UTC: "Claude is told at your next prompt" read
+    as a delay.
 
 ##### The verdict of the 5-hour window
 
@@ -2022,7 +2029,7 @@ counts the prompts, sends the due note and writes `cue`. The check that refuses 
 as basicly-7kxnrfj (harness: a Stop hook that blocks while an open board task for the person is
 older than the last person prompt; feature, priority 1). Its two requirements: it is an optional
 adapter that basicly runs without handily, and the owner approves the exact settings and hooks
-diff before it lands. Cut C2 is not done until basicly-7kxnrfj lands. A git hook does not fit: a
+diff before it lands. Cut C2e is not done until basicly-7kxnrfj lands. A git hook does not fit: a
 task for the person is not part of a commit.
 
 The rule of the Claude Code Stop hook, as this design proposes it to basicly-7kxnrfj:
@@ -2058,7 +2065,7 @@ The hooks of each agent:
 | Copilot CLI 1.0.117 | `agentStop` | blocks; after 8 blocks in a row the CLI ends the turn |
 | Copilot CLI | `sessionStart` | `additionalContext`; `userPromptSubmitted` cannot add context |
 
-A Codex Stop hook has a board file to check only after open question 3. A Codex
+A Codex Stop hook has a board file to check only after a Codex writer exists (question 3). A Codex
 `UserPromptSubmit` hook can show the open tasks of the Orchestrator from its board file now.
 
 Sources: code.claude.com/docs/en/hooks (Stop, UserPromptSubmit), learn.chatgpt.com/docs/hooks
@@ -2281,52 +2288,65 @@ Each question below names its answer. The owner decided 2, 3, 4, 5, 6, 13 and 17
 
 ##### The cuts of the build (each about a day)
 
-C3 is merged into C2. The numbers of the other cuts stay, so the notes on the records keep their
-meaning.
+Each cut is one record, one branch and one release, with a live tmux check of the installed plugin
+and the README and docs of the mod in the same lane. The first cut delivers the reliable close of
+the tasks for the person, the first complaint of the owner. It needs no board file and no Stop
+hook, so it goes first.
 
 | Cut | Scope |
 | --- | --- |
 | C0 | Probes P3, P4 and P5, measured 2026-11-28 and recorded on handily-bx84cu |
-| C1 | The board file v 1, its writes, liveness, `board_read`, `/board file`, the README |
-| C2 | For you evidence, due, keep open, the due note, the hint lines, `approves` |
-| C4 | The goal and the tree, cancelled and obsolete, the refusals, `/board goal`, agents |
+| C2a | The reliable close: due, keep open, the due note, the hint lines, the confirmation |
+| C2b | The prompt evidence: the prompt count, its expander, close with this prompt |
+| C2c | The command evidence: the kept commands, `ran`, `person_rejected`, `ran in chat?` |
+| C2d | `approves`: a press fills the prompt and sends nothing |
+| C1 | The board file v 1, its writes, liveness, `board_read`, `/board file`, the format |
+| C2e | The cue fields that the Stop hook of basicly-7kxnrfj reads |
+| C4a | The goal and the tree, cancelled and obsolete, the refusals, `/board goal` |
+| C4b | Agents in the tree, waiting agents in For you, the Agents block removed, `a` |
 | C5 | The cue: the concrete note, the goal note, the tool-result note, the notes count |
-| C6 | Expanders and the fit, the log keeps 4,000 characters, the footer, `h`, copy |
-| C7 | The Usage block: `windows[]`, the verdict, `7d room`, the waiver file and its command |
+| C6a | Expanders, the log keeps 4,000 characters |
+| C6b | The fit, the footer, `h`, copy |
+| C7a | The Usage block: `windows[]`, the verdict, `7d room` |
+| C7b | The waiver file, `/board waiver`, `waiver_set` |
 
+- C2a holds the due state in memory, `task_keep_open`, `/board keep`, `task_list` that clears
+  nothing, the due note with a tool result at most once in 20 calls, the hint line under each
+  open task, and decision 16.
+- C2b holds `N prompts since asked`, the expander of the last prompt, `[ close with this prompt ]`,
+  `/board said` and `[ undo ]`.
+- C2c holds the kept commands, `ran`, `person_rejected`, `ran in chat?`, `/board reject` and
+  handily-txillv.
 - C1 also holds the folder rule, the size cap, the masking, the heartbeat, the trailing write,
-  the reader rule, the `jq` and prune lines, the torn-read check and the resume check.
-- C2 also holds the kept commands, `ran`, `person_rejected`, `ran in chat?`, the prompt count,
-  `[ close with this prompt ]`, `/board said`, `task_keep_open`, `/board keep`, and the approval
-  path that fills the prompt. C2 is not done until basicly-7kxnrfj lands.
-- C5 folds handily-hxwjbf; its measure becomes the measure of C5.
-- C4 also holds `parent`, the derived status, the tree rows, agents under tasks, waiting agents
-  in For you, the Agents block removed, and `a`.
-- C6 folds handily-bxfx7w, handily-dr5989 (with the hotkey check of the former P7) and
-  handily-tzqb8p.
-- C7 folds handily-eh6mbu. It also holds `waiver_set`, `/board waiver`, the per-session
-  snapshot name after OQ 15, and the live check of the projection and the toast.
+  the reader rule, the `jq` and prune lines, the torn-read check, the resume check and the
+  published format in the README.
+- C2e writes `cue.due_ids` and the other fields that the hook reads. It is not done until
+  basicly-7kxnrfj lands.
+- C5 is handily-hxwjbf; its measure becomes the measure of C5.
+- C6b is handily-bxfx7w, handily-dr5989 (with the hotkey check of the former P7) and
+  handily-tzqb8p, with F1 and F8 of handily-wch3o5.
+- C7a ends with handily-eh6mbu, the live check of the projection and the toast. C7b holds the
+  per-session snapshot name after OQ 15.
 
-Order: C0, C1, C2, C4, C5, C6, C7. For you comes first because the owner uses it most. Each cut
-is one record, one branch and one release, with a live tmux check of the installed plugin. The
-Stop hook is basicly-7kxnrfj in the basicly tracker, not in handily.
+Order: C0, C2a, C2b, C2c, C2d, C1, C2e, C4a, C4b, C5, C6a, C6b, C7a, C7b. The Stop hook is
+basicly-7kxnrfj in the basicly tracker, not in handily.
 
 ##### Records
 
 | Record | State today | In this design |
 | --- | --- | --- |
-| basicly-7kxnrfj | open, priority 1, in basicly | the Stop hook; C2 waits for it |
-| handily-hxwjbf | 2 cuts released (0.35.1, 0.39.1); a measure open | folds into C5 |
+| basicly-7kxnrfj | open, priority 1, in basicly | the Stop hook; C2e waits for it |
+| handily-hxwjbf | 2 cuts released (0.35.1, 0.39.1); a measure open | is C5 |
 | handily-kwl9m1 | closed 2026-11-28 after its live check | C4 adds `parent` and `reason` |
-| handily-eq3pqp | closed 2026-11-28 after its live check | C2 matches `ran` to its lines |
+| handily-eq3pqp | closed 2026-11-28 after its live check | C2c matches `ran` to its lines |
 | handily-8gg9ro | closed 2026-11-28; `task_list` doubles a backslash | the file writes raw lines |
-| handily-dr5989 | open, not built | folds into C6, with the hotkey check |
+| handily-dr5989 | open, not built | folds into C6b, with the hotkey check |
 | handily-h4zh9h | open, not built | stays; its history reads the ended board files |
-| handily-tzqb8p | open, not built | folds into C6 (`[ c: copy ]` on the opened task) |
-| handily-bxfx7w | open, not built | folds into C6, with the fold order of 25.10 |
-| handily-eh6mbu | open, deferred | folds into C7: the live check of the Usage block |
+| handily-tzqb8p | open, not built | folds into C6b (`[ c: copy ]` on the opened task) |
+| handily-bxfx7w | open, not built | folds into C6b, with the fold order of 25.10 |
+| handily-eh6mbu | open, deferred | folds into C7a: the live check of the Usage block |
 | handily-nvtbc | open, not built | takes `openForYou` from the board files |
-| handily-wch3o5 | F7 released; F1, F3, F4, F5, F8, F11, F12 open | F1, F8 into C6; others stay |
+| handily-wch3o5 | F7 released; F1, F3, F4, F5, F8, F11, F12 open | F1, F8 into C6b; others stay |
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
