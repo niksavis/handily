@@ -2,7 +2,7 @@
   "version": "1",
   "outputs": {
     ".claude/CLAUDE.md": {
-      "hash": "sha256:9770ae337432c2606714e36c6db96f9c1d71c4adf52a2e85045bed986249df93",
+      "hash": "sha256:913197633982b0f658f53a87c99a929ab1a58281720afe54c7c41b5e3b6a947b",
       "source_fragments": [
         "code-is-authoritative",
         "secure-coding",
@@ -17,7 +17,6 @@
         "external-facts",
         "core-rules",
         "mistake-proofing",
-        "catalog-authoring",
         "non-interactive-shell",
         "quality-gate",
         "git-discipline",
@@ -25,13 +24,13 @@
       ]
     },
     ".claude/rules/mod-authoring.md": {
-      "hash": "sha256:4c53a55da9faa7d296a187af5792bb55aae3d5bec182e9245114ea8bc03c9b5d",
+      "hash": "sha256:46f8550038ac29b0185be7fd162b0ae0b2d0f0e43843ea018f415dac3ef6cb7a",
       "source_fragments": [
         "mod-authoring"
       ]
     },
     "AGENTS.md": {
-      "hash": "sha256:a4c2f8574ebb38c7f5359f6c9f31b33dc3441f086332dc0b8bd6b737fdc4e253",
+      "hash": "sha256:5120c33c24ca09be6d8ceb5b46261cb3a887b6a7ca5d61fbf1a34f4d8955383e",
       "source_fragments": [
         "code-is-authoritative",
         "secure-coding",
@@ -46,7 +45,6 @@
         "external-facts",
         "core-rules",
         "mistake-proofing",
-        "catalog-authoring",
         "non-interactive-shell",
         "quality-gate",
         "git-discipline",
@@ -55,7 +53,7 @@
       ]
     },
     ".github/copilot-instructions.md": {
-      "hash": "sha256:9770ae337432c2606714e36c6db96f9c1d71c4adf52a2e85045bed986249df93",
+      "hash": "sha256:913197633982b0f658f53a87c99a929ab1a58281720afe54c7c41b5e3b6a947b",
       "source_fragments": [
         "code-is-authoritative",
         "secure-coding",
@@ -70,7 +68,6 @@
         "external-facts",
         "core-rules",
         "mistake-proofing",
-        "catalog-authoring",
         "non-interactive-shell",
         "quality-gate",
         "git-discipline",
