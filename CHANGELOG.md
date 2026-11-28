@@ -6,6 +6,18 @@ its `plugin.json` and follows [Semantic Versioning](https://semver.org/spec/v2.0
 
 ## [Unreleased]
 
+## handily-workitems 0.9.3 - 2026-11-28
+
+A session with no reader runs no tracker poll.
+
+### Fixed
+
+- **A session that shows no board and runs no other reader runs no tracker poll.** Each session
+  started its poll at session start and stopped it only after 5 minutes with no read. So a
+  session without a board still ran `basicly tracker items` about once a minute for its first 5
+  minutes. Now a session reads the tracker once at the start, and the first read by another mod,
+  such as a board draw, starts the poll. (handily-egnvhi)
+
 ## handily-workitems 0.9.2 - 2026-11-27
 
 All sessions share one tracker read per ledger change.
