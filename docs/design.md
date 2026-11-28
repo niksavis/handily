@@ -1632,10 +1632,73 @@ Inbox (handily-fwkt.8.28), the poll of `claude agents --json`, the per-session p
 
 #### For you, the goal tree, the usage block and the board file (handily-bx84cu)
 
-Proposed on 2026-11-28. Not approved: the Orchestrator swarm review and the owner decision come
-first. The owner request of 2026-11-28 11:45 UTC is on the record. The mocks are
-`docs/mocks.md` section 25. Pinned: Claude Code 2.1.332, codex-cli 0.172.0, GitHub Copilot CLI
-1.0.117, handily HEAD 6103c62. Vendor docs read on 2026-11-28.
+Proposed on 2026-11-28; this is the second version, after the swarm review of five lenses (ux,
+spec, poka-yoke, architecture, simplicity). Not approved: the owner decision comes first. The
+owner request of 2026-11-28 11:45 UTC is on the record. The mocks are `docs/mocks.md` section 25.
+Pinned: Claude Code 2.1.332, codex-cli 0.172.0, GitHub Copilot CLI 1.0.117, handily HEAD 6103c62.
+Vendor docs read on 2026-11-28.
+
+##### Changes after the swarm review
+
+Each finding of the review, by lens and number, with its fix. "OQ" is an open question below.
+
+- ux 1, prose answers leave For you stale: decision 3. Every open do or answer task shows
+  `N prompts since asked`, the last prompt behind an expander, and `[ close with this prompt ]`
+  with its twin `/board said N` (25.5).
+- ux 2, spec 2, poka-yoke 1 and 2, the close is not enforced and `task_list` defeats the check:
+  decisions 6 and 15. The Stop hook ships as basicly-7kxnrfj, and cut C2 is not done until it
+  lands. Only `task_close` or `task_keep_open` with a reason clears a due task. The hook blocks
+  again while a task is due. A due note goes with a tool result every 20 calls, for long runs.
+- ux 3, architecture 1, the file goes stale and the hook reads old cue values: "Writer". A person
+  prompt, a close, a keep open and an ask write at once. A tree change, an agent, a usage reading
+  and a 60-second heartbeat write at most every 5 seconds, with a trailing write.
+- poka-yoke 3, architecture 3, spec nit, crashed sessions look live: "Liveness". `board_read`
+  derives `live`, `stale` or `ended` from `updated_at` and the heartbeat. The store of 8.17 is an
+  optional enrichment. The open asks of a stale session show as stale.
+- poka-yoke 4, a resume hides open asks: "A resume and /clear". Open tasks for the person carry
+  over and are due at once.
+- ux 4, spec 1, no cancelled or obsolete state: decision 8. Both statuses take a reason, stay in
+  the file, and count in neither `n/m` nor the parent rule.
+- ux 5, no age and no stale mark without a goal: 25.7. The no-goal head shows the age and the
+  stale mark, and the `goal_set` note repeats until a goal exists.
+- ux 6, the fit drops the stale signal: the Goal head row holds the count and the age and never
+  folds. The left-out line is the button `[ N more rows: … ]` (25.10).
+- ux 7, the agent under a task fails with subtasks: decision 9, the deepest task in progress.
+- poka-yoke 5, architecture 5, Codex and Copilot asks are absent: "Codex and Copilot" and OQ 3.
+  The format is vendor neutral now, readers keep a writer allow-list, and `board_read` and the
+  README say where those asks are.
+- poka-yoke 6, the tree has no refusal rules: 25.15 refuses each case by name. A status on a
+  parent, closing a parent with open subtasks, a second `goal_set` while tasks are open, and an
+  agent whose task is removed are all covered.
+- poka-yoke 7, architecture nit 3, writes are not atomic: "The write". `$.fs` has no rename in
+  2.1.332. The board writes in place, a reader reads a file that parses as whole, and the C1
+  check measures torn reads.
+- architecture 2, poka-yoke nit, one fact is in several files: the board file holds verdicts and
+  paths, not the readings or a copy of the waiver. Each session writes its own usage snapshot
+  file (OQ 15), and `board_read all` returns the usage once.
+- architecture 4, the usage schema fits Claude only: `usage.windows[]` with `kind`, `length_s`,
+  `used`, `resets_at`, `projected`, `verdict` and `source`.
+- simplicity 1, two words for one signal: decision 11, one pace word, the verdict. The rename of
+  `plan` to `advice` and its round trip with basicly-pace are dropped.
+- simplicity 2, too much waiver machinery: decision 12. The board shows the waiver; one command
+  sets it. The dialog, the filled prompt, `said_at` and the forged-waiver state are gone.
+- simplicity 3, four routes to close: kept by order of the Orchestrator, answered in OQ 13.
+- simplicity 4, a second per-session file: answered in OQ 14.
+- ux nit, typed commands: every button has a twin, and `/board goal set`, `done` and `clear` are
+  added (25.14, 25.16). `/board file` is in the table.
+- ux nit, a digit can approve the wrong task: a button of a task with `approves` has no digit.
+- ux nit, smaller points:
+  - an agent key now stands at the right end, `[ 2: open ]`, so it does not read as a task id;
+  - `openForYou` comes from the board file ("Readers");
+  - For you is the top block, and Usage takes 3 rows.
+- architecture nit 1, retention deletes the files of other sessions: no board deletes a file.
+  `$.fs` has no delete, so the first version could not be built as written.
+- architecture nit 2, the pane and `board_read` can disagree: `board_read` answers the own
+  session from memory.
+- simplicity nits: P6 is a check in C1, and its mode half is answered by the engine types. P7 is
+  a check in C6. P2 runs only on outcome B of P1. C3 is merged into C2.
+- spec 2 named C5 as the cut that waits for the hook. The Orchestrator named C2, which this
+  version follows. The notes count of spec 2 is in `cue` and on the stale line (25.7).
 
 **The person and the task.** The owner uses For you most: it shows what waits for him. He does not
 use the task list, because it goes stale after about an hour. He does not use the agents area: it
@@ -1645,66 +1708,88 @@ facts, so the facts live in a file, and the pane is their view for a person.
 
 ##### Decisions (proposed)
 
-1. **Layout.** Top to bottom: Usage (4 rows), For you, Goal, Log, the key footer. The Agents
+1. **Layout.** Top to bottom: For you, Usage (3 rows), Goal, Log, the key footer. The Agents
    block goes. The Session line becomes one row, `▸ session …`, which opens the details of today.
 2. **For you takes a command as evidence.** The board keeps the commands that the person runs,
    next to the prompts it keeps today:
    - a slash command from `command.run` with origin `composer`;
    - a `!` line, read from its transcript row (`<bash-input>`, `rowSource: "local"`) through
      `$.session.messages` or the `session.append` hook. Probe P3 names the event.
+
    It keeps at most 20 of them, since the oldest open task for the person, in memory, as it keeps
    prompts (`MAX_KEPT_PROMPTS`). A command of the board (`$.command.run`, register.tsx:1706) or a
-   Bash call of the model never counts.
-3. **`task_close` gains `ran` and `person_rejected`.** `ran` (one line, at most 400) is
-   checked literally against the kept commands, as `said` is checked against the kept prompts.
-   `person_did` takes `said` or `ran`. `person_rejected` takes `said` or `ran` and closes
-   with the result `rejected`, so the person sees "you rejected". `not_needed` with a note stays
-   the close for a task that is done by other means, obsolete or cancelled.
-4. **The board asks, it does not close.** When a kept command matches an open `do` task, the
-   board shows `ran in chat?` with `[ close as done ]` and `[ still open ]`, the ask of 20.10.
-   The note to Claude names the commands, so Claude can close the task with `ran`.
-5. **A hint line under each open task for the person** names the exact commands:
-   `/board done 7 · /board reject 7`, `/board answer 10 your words`, `/board pick 8 1` with the
-   recommended option. The hint is the path that always works, also when probe P3 or P4 fails.
-6. **A goal and a tree.** A new model tool `goal_set` (text at most 200, optional `done_when` at
-   most 200) sets the one goal of the session. `task_add` and `task_update` gain an optional
-   `parent` (the id of a task with no parent). A parent has no status of its own: it is done when
-   all its subtasks are done, and doing when one is doing. One level of subtasks.
-7. **Agents live in the tree.** An agent row stands under the task that was in progress when the
-   agent started. A waiting agent is a row of For you. `a` opens the agent rows of 14.1 E.
-8. **Expanders everywhere a row is cut.** A cut row ends with `…` and is a Button. A press or
-   Enter opens the whole text below it, and the focus stays. The log keeps up to 4,000 characters
-   and every line of each event, with credentials masked, in place of the first line and 200
-   characters (`logDetail`, log.ts).
-9. **The Usage block.** It shows a verdict for the 5-hour window (`on track`, `too fast`,
-   `slow`, `no pace yet`), the projection at the reset for both windows, and the `7d room`: how
-   many full 5-hour windows the 7-day window still holds. Beside the verdict it draws the advice
-   of section 24 (`start`, `hold`, `close idle`): `on track` comes with `hold`, `too fast` with
-   `close idle`, `slow` with `start`. The source is the `rateLimits` of `session.measure` and
-   `$.session.usage()`, as today (pace.ts, usage-snapshot.ts). No number comes from basicly.
-10. **The 7-day waiver.** `w` asks. `Until 23:59 today` writes the waiver file and fills the prompt
-    box with the sentence of the person. The board never submits it.
-11. **One data model: the board file.** Each board writes one JSON file for its session. The pane
+   Bash call of the model never counts. The owner closed two tasks today by running the command
+   in the chat, so this evidence stays.
+3. **For you counts the prompts.** Each open `do` or `answer` task shows `N prompts since asked`
+   from the first prompt of the person after the ask. The last prompt opens behind an expander,
+   with credentials masked. `[ close with this prompt ]` and `/board said N` close the task as the
+   person: an answer task with that prompt as the answer, a do task as done with that prompt as
+   `said`. A `decide` task keeps the ask of 20.10 for a prompt that names an option. The prompt
+   text stays in memory; the file holds only the count.
+4. **`task_close` gains `ran` and `person_rejected`.** `ran` (one line, at most 400) is checked
+   literally against the kept commands, as `said` is checked against the kept prompts.
+   `person_did` takes `said` or `ran`. `person_rejected` takes `said` or `ran` and closes with
+   the result `rejected`, so the person sees "you rejected". `not_needed` with a note stays the
+   close for a task that is done by other means, obsolete or cancelled.
+5. **The board asks; it closes only on a press of the person.** When a kept command matches an
+   open `do` task, the board shows `ran in chat?` with `[ close as done ]` and `[ keep open ]`,
+   the ask of 20.10. The note to Claude names the commands, so Claude can close the task with
+   `ran`.
+6. **Due and keep open.** An open task for the person is due when it was asked before the last
+   prompt of the person and was not kept open since that prompt. Two calls clear it, per task:
+   `task_close`, or the new tool `task_keep_open` with a reason. The person clears it with
+   `[ keep open ]` or `/board keep N`. `task_list` only reads and clears nothing. The next prompt
+   makes a kept task due again. A command that the board keeps counts as a prompt here.
+7. **A hint line under each open task for the person** names the typed twins of its buttons:
+   `/board done 7 · /board keep 7`, `/board said 10 · /board reject 10`, `/board pick 8 1`. The
+   hint is the path that always works, also when probe P3 or P4 fails.
+8. **A goal and a tree.** A new model tool `goal_set` (text at most 200, optional `done_when` at
+   most 200) sets the one goal of the session; the person sets it with `/board goal set`.
+   `task_add` and `task_update` gain an optional `parent` (the id of a task with no parent). One
+   level of subtasks. `task_update` gains the statuses `cancelled` and `obsolete`, each with a
+   required reason. A parent has no status of its own: doing when a subtask is doing, done when
+   every subtask that is not cancelled or obsolete is done, and obsolete when all are. `n/m`
+   leaves cancelled and obsolete tasks out. 25.15 lists the refusals.
+9. **Agents live in the tree.** An agent row stands under the deepest task in progress when the
+   agent started: the subtask in progress, else the parent; with two, the one started last; with
+   none, at the foot. A waiting agent is a row of For you. `a` opens the agent rows of 14.1 E.
+10. **Expanders everywhere a row is cut.** A cut row ends with `…` and is a Button. A press or
+    Enter opens the whole text below it, and the focus stays. The log keeps up to 4,000
+    characters and every line of each event, with credentials masked, in place of the first line
+    and 200 characters (`logDetail`, log.ts).
+11. **The Usage block, one pace word.** The head shows the verdict of the 5-hour window
+    (`on track`, `too fast`, `slow`, `no pace yet`) and the projection at the reset. The second
+    row opens the gauges, the 7d projection and the `7d room`: how many full 5-hour windows the
+    7-day window still holds. The advice words of section 24 leave the pane; the snapshot file
+    keeps them. The source is the `rateLimits` of `session.measure` and `$.session.usage()`, as
+    today (pace.ts, usage-snapshot.ts). No number comes from basicly.
+12. **The 7-day waiver, shown, set by one command.** The owner types `/board waiver 23:59` in any
+    session, or the Orchestrator calls `waiver_set` with his words. Every board shows it. The board
+    has no dialog, no key and no judgement of who wrote the file.
+13. **One data model: the board file.** Each board writes one JSON file for its session. The pane
     draws the same facts from memory. Agents read the file or the new MCP tool `board_read`.
-12. **A press that approves an action.** `task_assign` gains `approves`, the exact action, such as
-    `git push origin v0.40.0`. Probe P1 decides between a press that sends (outcome A) and a press
-    that fills the prompt (outcome B).
+14. **A press that approves an action.** `task_assign` gains `approves`, the exact action, such
+    as `git push origin v0.40.0`. Its buttons get no digit key. Probe P1 decides between a press
+    that sends (outcome A) and a press that fills the prompt (outcome B).
+15. **The close is enforced outside the mod.** The Stop hook ships as the basicly record
+    basicly-7kxnrfj. Cut C2 is not done until that record lands ("Where the close is enforced").
 
 ##### The verdict of the 5-hour window
 
 | Verdict | Rule |
 | --- | --- |
-| `too fast` | the projected full time comes before the reset; the head names the wait: reset minus full time |
-| `on track` | the projection at the reset is 90 to 100 percent, and the window does not fill before the reset |
+| `too fast` | the projected full time is before the reset; the row names the wait |
+| `on track` | the projection at the reset is 90 to 100 percent, with no fill before it |
 | `slow` | the projection at the reset is below 90 percent; the row names the unused share |
 | `no pace yet` | the rules of 8.15e give no projection |
 
+- The wait of `too fast` is the reset time less the projected full time.
 - The projection is the one of 24.3: the 5h rate over the readings of the last 60 minutes when
   they span 15 minutes, else the window average.
 - `~6% each`: the rise of the 7d window over the rise of the 5h window, over readings where both
   rose, for 30 minutes or more. `7d room` is `(100 - 7d used) / that share`, rounded down.
 - The 7d verdict shows in the head only as `too fast`, when its projection at the reset is over
-  100 percent.
+  100 percent, and not while a 7-day waiver holds.
 
 ##### The board file
 
@@ -1712,11 +1797,54 @@ facts, so the facts live in a file, and the pane is their view for a person.
 else on Windows `LOCALAPPDATA`, else `XDG_STATE_HOME` when absolute, else
 `HOME/.local/state`. The folder rule of the usage snapshot (`folderRule` in
 usage-snapshot.ts) applies, with its refusal of a relative path. The session id is checked
-against `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, the name rule of store.ts.
+against `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`, the name rule of store.ts. The desktop surface
+writes no board file in version 1, because `$.fs` there is not measured (8.17).
 
-**Writer.** Only the board of that session writes it, with `$.fs.write`, in place, after each
-change of the goal, a task, a task for the person or an agent, at most once every 5 seconds, and
-at session end with `ended_at`. No other process writes it.
+**Writer.** Only the board of that session writes the file. No other process writes it, and no
+board deletes a file.
+
+- At once, outside the throttle: a person prompt, `task_assign`, `task_close`,
+  `task_keep_open`, a press that closes or keeps open a task for the person, and `goal_set`.
+  These change what the Stop hook reads, so it never reads a due task that is already closed.
+- At most once every 5 seconds: a change of the tree or of an agent, a usage reading, and the
+  heartbeat. A change inside the 5 seconds is kept for a trailing write at the end of them, so
+  the last change always lands.
+- The heartbeat: every 60 seconds while the session is live (`$.clock.every`), the board writes
+  the file with a new `updated_at`, also with no other change.
+- At session end: one last write with `ended_at`, in the short form of "Retention".
+
+**The write.** `$.fs` in Claude Code 2.1.332 has six calls: `read`, `write`, `list`,
+`exists`, `stat` and `ancestors` (engine types). It has no rename and no delete, and `write`
+takes no file mode. So the board cannot write a temp file and rename it over the board file, and
+it could not remove a temp file either. The safe alternative:
+
+- One `$.fs.write` of the whole text, in place, as the usage snapshot writes (24).
+- A whole JSON object never parses from a cut text, because the cut text lacks its last brace.
+  When the engine truncates the file before it writes, as Node's `writeFile` does, a reader sees
+  the old text, an empty file, a prefix of the new text or the whole new text. Only the first and
+  the last parse. The C1 check measures whether that holds (the former probe P6).
+- A reader that cannot parse the file reads it again twice, 100 ms apart. Then it counts the
+  file as unreadable. Unreadable means unknown: never "nothing open".
+- Rejected: `$.process.run(["mv", temp, path])`. It runs a child process on every write, works
+  only where `mv` exists, does not run on the desktop surface, and breaks the "no child process"
+  rule of the usage snapshot. When a later engine adds a rename to `$.fs`, C1 switches to write
+  then rename.
+- The file gets the mode of the umask. The folder sits in the state folder of the user.
+
+**Liveness.** Every reader derives it from the file alone, so nothing needs basicly:
+
+| Liveness | Rule |
+| --- | --- |
+| `ended` | `ended_at` is set |
+| `live` | `updated_at` is at most 180 seconds old (3 heartbeats) or 5 minutes ahead |
+| `stale` | every other file, also one more than 5 minutes in the future |
+
+- When the setting `store` of 8.17 is set and the store row of the session is `dead`, the file
+  is `stale` at once, with the reason `process gone`. The store only adds; it never makes a
+  file live.
+- The open tasks for the person of a stale or ended session are stale asks. `board_read` lists
+  them apart (25.15), and the `jq` line of the README leaves them out.
+- A machine that sleeps makes every session stale until the next heartbeat after the wake.
 
 **Schema, v 1:**
 
@@ -1730,132 +1858,201 @@ at session end with `ended_at`. No other process writes it.
   "project": "handily",
   "name": "landing",
   "updated_at": 1795876800,
+  "heartbeat_s": 60,
   "ended_at": null,
   "goal": {
     "text": "Release the board redesign",
     "done_when": "the release is pinned",
     "set_at": 1795870000,
+    "set_by": "model",
     "done_at": null
   },
   "tasks": [
     { "id": 2, "parent": null, "title": "Keep the commands you run", "status": "in_progress",
-      "by": "model", "item": null, "started_at": 1795874760, "ended_at": null },
+      "reason": null, "by": "model", "item": null, "started_at": 1795874760, "ended_at": null },
     { "id": 5, "parent": 2, "title": "Accept ran in task_close", "status": "in_progress",
-      "by": "model", "item": null, "started_at": 1795876440, "ended_at": null }
+      "reason": null, "by": "model", "item": null, "started_at": 1795876440, "ended_at": null },
+    { "id": 6, "parent": 2, "title": "Match by substring", "status": "cancelled",
+      "reason": "a substring matched \"/re\" against every slash command", "by": "model",
+      "item": null, "started_at": 1795875000, "ended_at": 1795875600 }
   ],
   "for_person": [
     { "id": 7, "kind": "do", "title": "Reload the board plugin", "why": null,
       "options": [], "recommended": null, "approves": null, "commands": [],
-      "asked_at": 1795873000, "state": "open", "result": null },
+      "asked_at": 1795873000, "state": "open", "prompts_since": 1, "due": true,
+      "kept_open": null, "carried": false, "result": null },
+    { "id": 9, "kind": "do", "title": "Run the cleanup script", "why": null,
+      "options": [], "recommended": null, "approves": null, "commands": ["sh cleanup.sh"],
+      "asked_at": 1795873050, "state": "open", "prompts_since": 2, "due": false,
+      "kept_open": { "at": 1795876260, "by": "model", "reason": "the script failed; I asked again" },
+      "carried": false, "result": null },
     { "id": 8, "kind": "decide", "title": "Push tag v0.40.0 to origin?", "why": null,
       "options": ["go", "not now"], "recommended": 1, "approves": "git push origin v0.40.0",
-      "commands": [], "asked_at": 1795873100, "state": "closed",
+      "commands": [], "asked_at": 1795873100, "state": "closed", "prompts_since": 1,
+      "due": false, "kept_open": null, "carried": false,
       "result": { "verb": "rejected", "by": "claude", "how": "person_rejected",
                   "said": "no, skip the tag today", "ran": null, "note": null,
                   "at": 1795875000 } }
   ],
   "agents": [
-    { "id": "a1b2c3d4", "name": "scout", "state": "needs-you", "task": 5,
+    { "id": "a1b2c3d4", "name": "scout", "state": "needs-you", "task": 5, "task_was": null,
       "waits_for": "permission: Bash npm test", "since": 1795876700 }
   ],
   "cue": {
     "tree_changed_at": 1795872480,
     "calls_since_change": 41,
     "last_person_prompt_at": 1795876200,
-    "for_person_checked_at": 1795876000
+    "due_ids": [7],
+    "notes_sent": 3,
+    "notes_followed": 1
   },
   "usage": {
     "at": 1795876800,
-    "five_hour": { "used": 62, "resets_at": 1795884900, "projected": 97,
-                   "full_at": null, "verdict": "on track" },
-    "seven_day": { "used": 31, "resets_at": 1796150000, "projected": 58,
-                   "full_at": null, "verdict": "on track" },
-    "seven_day_per_full_five_hour": 6,
-    "seven_day_room_windows": 11,
-    "advice": "hold",
-    "waiver": { "until": 1795906740, "said_at": 1795876290, "by": "board-press" }
+    "windows": [
+      { "kind": "five_hour", "length_s": 18000, "used": 62, "resets_at": 1795884900,
+        "projected": 97, "full_at": null, "verdict": "on track", "source": "claude.rateLimits" },
+      { "kind": "seven_day", "length_s": 604800, "used": 31, "resets_at": 1796150000,
+        "projected": 58, "full_at": null, "verdict": "on track", "source": "claude.rateLimits" }
+    ],
+    "room": { "of": "seven_day", "per": "five_hour", "share": 6, "windows": 11 }
   },
-  "usage_file": "<state>/basicly/usage-snapshots/handily-board.json",
+  "usage_file": "<state>/basicly/usage-snapshots/handily-board-3f2a9c1e00004a1b.json",
   "waiver_file": "<state>/handily/seven-day-waiver.json"
 }
 ```
 
 - Times are whole epoch seconds of `$.clock`. Unknown keys are ignored by readers. A reader
-  refuses a file of another `format` or `v` by name.
-- `status` is `pending`, `in_progress`, `completed` (BoardStatus). `state` of a task for the
-  person is `open` or `closed`. `result` is BoardResult, with `ran` added.
-- `cue` holds the numbers that a harness hook needs (see "Where the close is enforced").
-- `usage` holds what the pane shows: the used and projected percent, the full time, the verdict of
-  each window, the 7d share of one full 5h window, the room, the advice and the waiver. So an
-  agent reads the pace without the raw readings. `null` fields mean no projection, as on the pane.
-  The raw readings stay in the usage file.
-- **A resume and `/clear`.** A resumed session starts with an empty task list (`RESUME_NOTE`), so
-  the file then holds an empty tree and the goal of before the resume, marked `"resumed": true`.
-  `/clear` empties the tree and the goal, as it empties the list today.
-- **Retention.** At session start each board deletes the board files of format `handily.board`
-  whose `ended_at`, or whose mtime when it has none, is more than 7 days old. It deletes only in
-  its own folder, and no file that it cannot parse as that format.
-- **Size.** At most 64 KiB. Done tasks past the newest 50 and closed tasks for the person older
-  than 24 hours leave the file first; the pane keeps them.
+  refuses a file of another `format` or `v` by name, and a `writer` that is not on its allow-list
+  (`handily-board` in version 1).
+- `status` is `pending`, `in_progress`, `completed`, `cancelled` or `obsolete` (BoardStatus).
+  `reason` is set for the last two. `state` of a task for the person is `open` or `closed`.
+  `result` is BoardResult, with `ran` added.
+- `due` is written by the board, by the rule of decision 6, so the rule lives in one place.
+  `cue.due_ids` lists the due tasks. `prompts_since` is a count; the prompts stay in memory.
+- `cue` holds what the Stop hook reads. `notes_sent` counts the notes of the cue (tree, goal and
+  due); `notes_followed` counts those followed by a task tool call within 3 model calls, the rule
+  of the staleness script.
+- `usage` holds the verdicts that the pane shows, one object for each window. `length_s` and
+  `source` let a window of another vendor fit with no schema change. `full_at` is set only for
+  `too fast`. `null` fields mean no projection, as on the pane. The raw readings stay in the usage
+  file; the waiver stays in the waiver file. The board file names both paths.
+- An agent whose task was removed has `"task": null` and the old id in `task_was`.
+- **A resume and `/clear`.**
+  - A resume that keeps the session id reads its own board file back. The goal and the open
+    tasks for the person carry over with their ids, marked `"carried": true`. Each is due at
+    once, so the due note and the Stop hook name it. The tree starts empty, as `RESUME_NOTE`
+    says. Cut C1 checks whether a resume keeps the session id.
+  - A start with a new session id finds the old file only when the start event names the
+    earlier session; C1 checks whether it does. Else the old file turns stale, and its open asks
+    show as stale asks.
+  - `/clear` empties the tree and the goal, as it empties the list today, and keeps the open
+    tasks for the person (OQ 17).
+- **Retention.** No board deletes a file, its own or another. Readers skip a file whose
+  `updated_at` is more than 7 days old, and read the 200 newest by mtime. The last write at
+  session end is short: the goal, the counts, every open task for the person and the tasks for
+  the person closed in the last 24 hours, under 4 KiB with up to 10 open tasks. At 12 sessions a
+  day the folder grows by about 17 MB a year. The README gives the prune line for the person:
+  `find <state>/handily/boards -name '*.json' -mtime +7 -delete`.
+- **Size.** At most 64 KiB. Done, cancelled and obsolete tasks past the newest 50, and closed
+  tasks for the person older than 24 hours, leave the file first; the pane keeps them.
 - **What never enters the file:** the text of any prompt beyond the `said` quote of a closed task,
-  tool inputs and outputs, the log, the context parts. `said`, `ran`, titles and notes go through
-  `maskedCredentials` (credentials.ts) and `escaped` before the write.
+  tool inputs and outputs, the log, the context parts. `said`, `ran`, titles, reasons and notes go
+  through `maskedCredentials` (credentials.ts) and `escaped` before the write.
 
-**The usage file** stays the usage snapshot of section 24 (`basicly.usage-snapshot` v 1, written
-by the board, read by basicly). The board file names its path. Nothing of basicly is needed to
-write or read it.
+**The usage file** stays the usage snapshot of section 24 (`basicly.usage-snapshot` v 1, read by
+basicly), with one writer for each file. The spec of basicly-pace names a file `<writer>.json`,
+with a writer name of lower-case letters, digits and dashes, at most 40 characters, and says
+"each writer writes its own file". So each board writes `handily-board-<id16>.json`, where
+`<id16>` is the first 16 letters and digits of the session id, lower-cased. It merges only its own
+readings. basicly-pace confirms the name before C7 (OQ 15). Nothing of basicly is needed to write
+or read it.
 
 **The waiver file:** `<state>/handily/seven-day-waiver.json`, one for the machine:
 
 ```json
 { "format": "handily.seven-day-waiver", "v": 1, "until": 1795906740, "set_at": 1795876260,
-  "by": "board-press", "session": "3f2a9c1e-…", "said_at": 1795876290, "ended_at": null }
+  "by": "waiver_set", "session": "3f2a9c1e-…", "name": "Orchestrator",
+  "said": "you may ignore the weekly limit today" }
 ```
 
-`said_at` is set when that board sees a prompt of origin `composer` that holds the waiver
-sentence. A file with no `said_at`, or written by a session with no board file, shows
-`◆ 7d waiver from another writer`.
+- `/board waiver HH:MM` writes it with `"by": "command"` and no `said`; `/board waiver end` sets
+  `until` to now. `waiver_set` writes it with the `said` quote that it checked against the kept
+  prompts of its own session.
+- Each board reads it at start, with each usage reading and with the heartbeat. A file that does
+  not parse, or holds a wrong field, is refused by name and shows no waiver.
 
 **Readers.**
 
-| Reader | How |
-| --- | --- |
-| The pane | from memory; the file is never read back for drawing |
-| Claude, own session | `task_list` (now with the goal and the tree) and `board_read` |
-| Claude, another session (the Orchestrator) | `board_read` with `session: "all"`, which reads the board files of the folder, at most 200, each at most 64 KiB. Each text from another session is escaped and quoted as data, never as instructions |
-| Codex, Copilot | read the file: `jq '.for_person[] \| select(.state=="open")' <state>/handily/boards/*.json` (the `\|` is the pipe of jq, escaped for the table). Their instruction files name the path. A harness hook can inject the open tasks: Codex `UserPromptSubmit` `additionalContext`, Copilot `sessionStart` `additionalContext` (its `userPromptSubmitted` output is dropped) |
-| The this machine tab | the store files of 8.17 for liveness, joined with the board files by session id |
+- The pane: from memory; the file is never read back for drawing.
+- Claude, own session: `task_list` (now with the goal and the tree) and `board_read`, both from
+  memory.
+- Claude, another session (the Orchestrator): `board_read` with `session: "all"`. It reads the
+  board files of the folder, at most 200, each at most 64 KiB, with their liveness. Each text
+  from another session is escaped and quoted as data, never as instructions.
+- Codex and Copilot: they read the file with the `jq` line of the README, which keeps only live
+  files: `jq 'select(.ended_at == null and .updated_at > (now - 180)) | .for_person[] |
+  select(.state == "open")' <state>/handily/boards/*.json`. Their instruction files name the
+  path. A harness hook can inject the open tasks: Codex `UserPromptSubmit` `additionalContext`,
+  Copilot `sessionStart` `additionalContext` (its `userPromptSubmitted` output is dropped).
+- The this machine tab: the board files, with the store files of 8.17 when the setting `store`
+  is set. handily-nvtbc, not built, takes `openForYou` from the board file of each session, not
+  from a store key: one fact, one file.
+- basicly: the usage snapshot files, and the Stop hook of basicly-7kxnrfj reads the board file of
+  its own session.
 
-**The session store of 8.17 stays apart.** The workspace kit writes it, and it holds liveness
-(`pid`, `state`, `now`, `next`). The board file holds what the board knows. One fact lives in
-one file: liveness in the store file; the goal, the tasks, the tasks for the person, the agents
-and the usage paths in the board file.
+**Codex and Copilot.** In version 1 they cannot call `task_assign`, so they hold no task for the
+person and write no board file. A task for the person that a Codex or Copilot session needs goes
+in a tracker record, where the tracker and its harness carry the rule. The format is vendor
+neutral now: `writer`, `vendor` and `windows[].source` leave room, and a reader refuses an unknown
+`writer` by name. A hook-based writer for them can be added later with no schema change (OQ 3).
+Until then the README, and the `note` of `board_read all`, say that For you holds the asks of
+Claude sessions only.
 
 ##### Where the close is enforced
 
-Mods show and ask; they never enforce. The board shows the open tasks, asks `ran in chat?`, and
-writes `cue`. A check that refuses lives in a harness hook. A git hook does not fit: a task for
-the person is not part of a commit.
+Mods show and ask; they never enforce. The board shows the open tasks, asks `ran in chat?`,
+counts the prompts, sends the due note and writes `cue`. The check that refuses ships in basicly,
+as basicly-7kxnrfj (harness: a Stop hook that blocks while an open board task for the person is
+older than the last person prompt; feature, priority 1). Its two requirements: it is an optional
+adapter that basicly runs without handily, and the owner approves the exact settings and hooks
+diff before it lands. Cut C2 is not done until basicly-7kxnrfj lands. A git hook does not fit: a
+task for the person is not part of a commit.
+
+The rule of the Claude Code Stop hook, as this design proposes it to basicly-7kxnrfj:
+
+- It reads the board file of `session_id`. With no file, it lets the stop through: no board, no
+  check.
+- A file that does not parse after 3 reads, 100 ms apart, is unknown. The hook lets the stop
+  through, and its reason says that it could not read the file. It never reads it as "nothing
+  open".
+- A stale file means the board does not run in this session. The hook lets the stop through and
+  says so.
+- While `cue.due_ids` is not empty, it blocks with `decision: "block"` and the reason of 25.14.
+  It blocks again at every stop while a task is due, also when `stop_hook_active` is true. The
+  loop ends by the own call of Claude: `task_close` or `task_keep_open` clears the task at once,
+  and the board writes the file at once. A runaway cap lets the stop through after 3 blocks in a
+  row with the same due ids, and says so (OQ 16).
+- It also blocks once when `calls_since_change >= 20` and `tree_changed_at` is 60 minutes old.
+  `stop_hook_active` true lets that one through.
+- `task_list` never clears it, because `task_list` writes no field that the hook reads.
+
+A stop comes rarely in a long run, so the board adds the due note with a tool result (25.14,
+"The cue"). basicly-7kxnrfj may add a `PostToolUse` check on the same `due_ids`; that is its own
+design.
+
+The hooks of each agent:
 
 | Agent | Hook | What it does |
 | --- | --- | --- |
-| Claude Code 2.1.332 | `Stop` (settings or harness, not a mod) | reads the board file of `session_id`. When a task for the person is open and `last_person_prompt_at > for_person_checked_at`, it blocks once with `decision: "block"` and a reason that names the open ids and the evidence rule. It also blocks once when `calls_since_change >= 20` and `tree_changed_at` is 60 minutes old. `stop_hook_active` true lets the stop through, so it blocks at most once per stop |
-| Claude Code | `UserPromptSubmit` | not needed: the board already adds the open tasks as context |
-| Codex CLI 0.172.0 | `Stop` | `decision: "block"` makes `reason` a continuation prompt. It needs a board file of the Codex session, which exists only after open question 3 |
-| Codex CLI | `UserPromptSubmit` | `additionalContext` with the open tasks for the person from the board file of the Orchestrator |
-| Copilot CLI 1.0.117 | `agentStop` | blocks and forces a continuation; after 8 blocks in a row the CLI ends the turn |
-| Copilot CLI | `sessionStart` | `additionalContext`; `userPromptSubmitted` cannot add context or block |
+| Claude Code 2.1.332 | `Stop` (basicly-7kxnrfj) | the rule above |
+| Claude Code | `UserPromptSubmit` | not needed: the board adds the open tasks as context |
+| Codex CLI 0.172.0 | `Stop` | `decision: "block"` makes `reason` a continuation prompt |
+| Codex CLI | `UserPromptSubmit` | `additionalContext` with the open tasks for the person |
+| Copilot CLI 1.0.117 | `agentStop` | blocks; after 8 blocks in a row the CLI ends the turn |
+| Copilot CLI | `sessionStart` | `additionalContext`; `userPromptSubmitted` cannot add context |
 
-**Codex and Copilot in version 1.** They cannot call `task_assign`, so they hold no task for the
-person and write no board file. Their Stop or agentStop hook has nothing of the board to check. A
-task for the person that a Codex or Copilot session needs goes in a tracker record, where the
-tracker and its harness carry the rule. They can read the board files of Claude sessions, and a
-harness hook can show them the open tasks of the Orchestrator. A check for them needs open
-question 3 decided first: this item is `needs decision`.
-
-`for_person_checked_at` is the time of the last `task_list`, `task_close` or `task_assign` call
-of the main loop. The hooks belong in the basicly harness or in the settings of the person. This
-design writes the fields they read and names the rule in the README. It ships no hook.
+A Codex Stop hook has a board file to check only after open question 3. A Codex
+`UserPromptSubmit` hook can show the open tasks of the Orchestrator from its board file now.
 
 Sources: code.claude.com/docs/en/hooks (Stop, UserPromptSubmit), learn.chatgpt.com/docs/hooks
 (Codex; read through a summary, a browser read still has to quote it), and
@@ -1876,8 +2073,8 @@ docs.github.com/en/copilot/reference/hooks-configuration.
   prompt. Then Claude runs the push. Read the verdict and the `PermissionDenied` reason.
   - Outcome A, the push passes: the press keeps sending at once (25.6 A).
   - Outcome B, the classifier blocks: a press on a task with `approves` fills the prompt and
-    the person sends it with Enter (25.6 B). Probe P2 checks that this prompt has origin
-    `composer`.
+    the person sends it with Enter (25.6 B). Only then probe P2 checks that this prompt has
+    origin `composer`.
 - The board never uses `tool.judge` to answer the classifier: that is enforcement. `consent` on
   `$.tool.call` covers only a call of the plugin itself, so it does not apply.
 
@@ -1901,34 +2098,54 @@ Baseline, measured on 2026-11-28 (`bx84cu-staleness.py`, 12 sessions of 2026-11-
 - So no measured stale gap lacked prompts. The note with a tool result is a guard for a long run
   with no prompt, not a measured fix. The concrete note aims at the low follow rate.
 
-The cue, in three parts:
+The cue, in five parts:
 
 1. Keep the note of 0.39.1 on every prompt origin.
-2. Send the note also with the next tool result, through `$.session.append`, when the tree has not
-   changed for 20 tool calls (`PLAN_WARNING_CALLS`) or for 30 minutes of tool calls. A long run
-   with no prompt then still gets it. The engine types say a user row "right behind tool results
-   is a system message". Probe P5 checks it under the organization security plugin, which skips
-   some hooks.
+2. Send the tree note also with the next tool result, through `$.session.append`, when the tree
+   has not changed for 20 tool calls (`PLAN_WARNING_CALLS`) or for 30 minutes of tool calls. A
+   long run with no prompt then still gets it. The engine types say a user row "right behind
+   tool results is a system message". Probe P5 checks it under the organization security plugin,
+   which skips some hooks.
 3. Make the note concrete: it names the goal, the task in progress and its age, and the exact
-   call (`task_update 5 completed`, `task_add parent 2`), as in 25.14.
+   call (`task_update 5 completed`, `cancelled` or `obsolete` with a reason,
+   `task_add parent 2`), as in 25.14.
+4. With no goal, every tree note asks for `goal_set`, until a goal exists. The first
+   `goal_set` takes the tasks under it, so the note can always be followed.
+5. The due note: while a task for the person is due, the next tool result carries it, at most
+   once in 20 tool calls. It names the ids, the prompt count and the two ways out.
+
+`cue.notes_sent` and `cue.notes_followed` show the owner whether the agent follows the list: the
+stale line of 25.7 reads `Claude got 3 notes and followed 1.`
 
 Target, measured with the same script on the next 12 sessions after the release: at most 1 stale
-session, and 85 percent or more of the notes followed within 3 model calls. The harness Stop hook
-is the enforcement for a person who wants it.
+session, and 85 percent or more of the notes followed within 3 model calls. The Stop hook of
+basicly-7kxnrfj is the enforcement.
 
 ##### Probes (first, before the build)
 
 | Probe | Question | How |
 | --- | --- | --- |
 | P1 | Does an `asUser` prompt count as the person for the classifier? | above |
-| P2 | Does a filled prompt sent by the Enter of the person have origin `composer`? | a scratch mod logs `prompt.submit` origin after `$.prompt.fill` and Enter |
-| P3 | Which event carries a `!` line: `prompt.submit`, `session.append` or `command.run`, and with which origin? | a scratch mod logs the three events; type `! echo probe` |
-| P4 | Does a built-in such as `/reload-plugins` raise `command.run`? | the same mod; type `/reload-plugins` |
-| P5 | Does a mid-turn `$.session.append` row reach the model with the organization security plugin on? | append a note after a tool result; read the next request and the transcript for "hook was skipped" |
-| P6 | Can `$.fs.write` set the file mode, and can another process read a half-written file? | write 64 KiB in a loop while a reader parses it |
-| P7 | Does a Pane arm the hotkey of a button scrolled out of view? (handily-dr5989) | a pane taller than the window; press the key of a button below the fold |
+| P2 | Only on outcome B of P1: has a filled prompt, sent by Enter, origin `composer`? | see below |
+| P3 | Which event carries a `!` line, and with which origin? | see below |
+| P4 | Does a built-in such as `/reload-plugins` raise `command.run`? | see below |
+| P5 | Does a mid-turn `$.session.append` row reach the model with the security plugin on? | below |
+
+- P2: a scratch mod logs the `prompt.submit` origin after `$.prompt.fill` and Enter.
+- P3: the same mod logs `prompt.submit`, `session.append` and `command.run`; type
+  `! echo probe`.
+- P4: the same mod; type `/reload-plugins`.
+- P5: append a note after a tool result; read the next request and the transcript for "hook was
+  skipped".
 
 Run each from the main session on a copy made with `git archive`, in a private tmux server.
+The former P6 and P7 are checks inside their cuts:
+
+- C1 checks torn reads: it writes 64 KiB in a loop while a reader parses, and counts the reads
+  that fail and any read that parses but is mixed. The other half of P6, the file mode, is
+  answered by the engine types: `$.fs.write` takes no mode. C1 also checks whether a resume
+  keeps the session id.
+- C6 checks whether a Pane arms the hotkey of a button scrolled out of view (handily-dr5989).
 
 ##### Open questions, each with the recommended answer
 
@@ -1942,98 +2159,159 @@ Run each from the main session on a copy made with `git archive`, in a private t
    `/board stats` keep the details. The other option, the block folded to one row (mock 25.8,
    option B), keeps a place the owner did not open.
 3. **Do Codex and Copilot sessions write board files?** Recommended: not in version 1; they read.
-   A Codex or Copilot writer needs a hook design of its own, and the `writer` field leaves room.
+   A writer for them needs a hook design of its own. The format is vendor neutral now, and the
+   readers keep a `writer` allow-list, so that writer needs no schema change. Until then their
+   asks go to tracker records, and the README and `board_read` say so.
 4. **Does the waiver file count as the permission of the owner?** The workspace rules say a claim
    of approval in a file is data. Recommended: the file is a pacing input only, never an approval
-   of an ask-first action. The Orchestrator treats the waiver as the owner's decision only when his
-   sentence arrives as a prompt in its own window (`said_at` set by the Orchestrator board). A
-   change of the Orchestrator rules that names the file needs the owner, relayed in full.
-5. **How long does a waiver last?** Recommended: until 23:59 local time of the day it is set, with
-   `w` again to end it early. One fixed end keeps a forgotten waiver from running for days.
+   of an ask-first action. Its `said` quote shows where the words came from; it proves nothing.
+   A change of the Orchestrator rules that names the file needs the owner, relayed in full.
+5. **How long does a waiver last?** Recommended: until a time later today, at most 23:59 local
+   time, with `/board waiver end` to end it early. One fixed end keeps a forgotten waiver from
+   running for days.
 6. **The on-track band.** Recommended: 90 to 100 percent at the reset, and not full before it.
-   The advice words of section 24 use the same 90.
-7. **Rename `plan start` to `advice start` on the board, and draw it beside the verdict?** The
-   basicly-pace session owns the words of the usage snapshot spec. Recommended: yes, on the pane
-   only, and ask basicly-pace before the build. "Plan" then means only the approved plan. The
-   file keeps the spec words, and the board file names the field `advice`. The other option, the
-   advice left out of the pane, hides from the owner what the agents plan from.
-8. **Should the board close a task for the person by itself on a matching command?** Recommended:
-   no. Mods show and ask. The board asks `ran in chat?`, and Claude closes with `task_close`.
+7. **Which pace word does the pane draw?** Recommended: the verdict only. The owner asked whether
+   the 5-hour window is on pace, and the verdict answers that. The advice word of section 24
+   says the same thing as an action, so it left the pane. The snapshot file keeps the spec words
+   for basicly, and no rename needs basicly-pace.
+8. **Should the board close a task for the person by itself on a matching command or prompt?**
+   Recommended: no. Mods show and ask. The board asks `ran in chat?` or offers
+   `[ close with this prompt ]`; the person presses, or Claude closes with `task_close`.
 9. **How deep is the tree?** Recommended: the goal, tasks and one level of subtasks. Deeper trees
    cost rows, and the agents did not keep even a flat list current.
-10. **One goal or many?** Recommended: one goal for each session. A new `goal_set` while tasks are
-    open is refused by name with the fix: finish or close the open tasks, or pass `replace: true`.
+10. **One goal or many?** Recommended: one goal for each session. The first `goal_set` takes every
+    task under it. A new `goal_set` while tasks are open under a goal is refused by name with the
+    fix: close the open tasks, or pass `replace: true`.
 11. **How much text does an expander keep?** Recommended: 4,000 characters for each log event, and
     at most 12 rows in the pane before `[ all N lines ]`.
 12. **Which commands match a do task?** Recommended: an exact command line after trimming, with a
     leading `!` and its space dropped, or a slash command whose name is in the title or the
     why as a whole word. No substring match.
+13. **Four routes to close a task for the person (simplicity 3)?** Recommended: keep the `ran`
+    evidence. The Orchestrator ordered it, because the owner closed two tasks today by running
+    the command in the chat. The routes are fewer than they look: one evidence row for each task
+    (a command or the prompts), its buttons, their typed twins in the hint line, and
+    `task_close` of Claude. P3 and P4 decide only whether the command row can show; the prompt
+    row and the twins work without them.
+14. **Why a board file beside the session store (simplicity 4)?** Recommended: keep it apart.
+    The setting `store` has no default, and the workspace kit of basicly writes that folder in a
+    format that basicly owns. A board that wrote there would need basicly, against "no mod needs
+    basicly", and would be a second writer in a folder of another format. The board file reuses
+    the name rule and the escaping of the store reader, and the folder rule of the snapshot.
+15. **One usage snapshot file for each session?** Recommended: yes, `handily-board-<id16>.json`,
+    which fits the file rule of the spec. basicly-pace owns the spec, and its reader reads every
+    file of the folder; it confirms the name and that old files are harmless before C7. The other
+    option, the shared `handily-board.json` of today, keeps several writers and the known loss of
+    a reading.
+16. **The runaway cap of the Stop hook.** Recommended: let the stop through after 3 blocks in a
+    row with the same due ids, and say so in the reason. Every block has a way out by one call, so
+    the cap only stops a loop when the board tools are off or broken. basicly-7kxnrfj decides it.
+17. **What does `/clear` do with the open tasks for the person?** Recommended: keep them. They wait
+    for the person, not for the context, and a lost ask is the failure the owner reported. The
+    tree and the goal empty, as today.
+18. **Which prompt does `[ close with this prompt ]` take?** Recommended: the last one. The
+    expander shows it, so the person sees what he closes with. Claude can close with any of the 20
+    kept prompts through `said`.
 
 ##### Failure modes
 
-- **A narrow dock.** Below body 41 the gauges, `(~6% each)`, `recommended` and the second hint
-  command drop. Below body 30 the hint keeps only `/board done N`. A verdict, a mark and an id are
-  never cut.
+- **A narrow dock.** Below body 41 the second hint command, `recommended`, the reset time,
+  `since asked` and the word `agent` drop (25.11). A verdict, a mark, an id, a key and the age on
+  the goal head are never cut.
 - **A long title or goal.** It is cut with `…` and opens whole. A title over 200 characters is
   refused by the tool, as today.
 - **Colour blindness and light themes.** Every mark has a word: `✓ on track`, `◆ too fast`,
-  `○ slow`. In light themes `claude` and `warning` look alike (12.1); the words tell them apart.
-- **A screen reader or a pipe.** `/board goal`, `/board list`, `/board stats` and `/board log`
-  print the same facts as text. The hint lines are plain commands.
+  `○ slow`, `⊘ cancelled`. In light themes `claude` and `warning` look alike (12.1); the words
+  tell them apart.
+- **A screen reader or a pipe.** `/board text` prints the whole board as text; `/board goal`,
+  `/board list`, `/board stats` and `/board log` print each part. The hint lines are plain
+  commands.
 - **The probe fails.** With P3 or P4 failed, the board sees no command, shows the `cannot see`
   line once, and `task_close` refuses `ran` by name:
   `task_close refused: the board cannot see the commands that the person runs on this version.
-  Ask the person to run /board done 7.`
-- **A forged waiver.** Any local process can write the waiver file. The board shows a file with no
-  `said_at` as `◆ 7d waiver from another writer`. The 5h verdict never changes.
-- **A half-written file.** `$.fs.write` writes in place, with no rename. A reader that fails to
-  parse reads again after 200 ms, then counts the file as missing for this read. `board_read` says
-  `3f2a…: not readable now (half written?)`.
-- **Secrets in the file.** Titles, `said`, `ran` and notes pass `maskedCredentials` first. A
-  secret in a shape that the mask does not know can still land in the file. The folder sits in the
-  state folder of the user. P6 checks whether the mode can be 0600.
-- **Two boards write one waiver at the same moment.** The engine has no compare-and-set. The later
-  write wins; both write the same `until`.
-- **A session that never sets a goal.** The tree shows `Goal  none set`, the flat list of today.
-  The note names `goal_set` once.
-- **The cue becomes noise.** At most one note in 20 tool calls, and none while the tree changes.
-  `Do not reply about this note.` closes every note.
+  Ask the person to run /board done 7.` The prompt row still works.
+- **A wrong prompt closes a task.** `[ close with this prompt ]` quotes the prompt below the
+  press and keeps `[ undo ]` until the next prompt.
+- **A half-written file.** A reader that cannot parse reads again twice, then reports the session
+  as unreadable: `board_read` says `9c1e…: unreadable, the file does not parse after 3 reads`,
+  and the Stop hook says it could not check. Neither reads it as nothing open.
+- **A crash.** No heartbeat lands, so after 180 seconds every reader counts the session stale,
+  and its open asks show as stale asks.
+- **A clock jump or a sleep.** A file more than 5 minutes in the future is stale. After a sleep
+  every session is stale until its next heartbeat.
+- **A resume with a new session id.** The board cannot link the files; the old open asks show
+  as stale asks, and the person sees them on the this machine tab.
+- **A loop of the Stop hook.** Each block has a way out by one call; the cap of OQ 16 ends a loop
+  when the tools are off.
+- **Secrets in the file.** Titles, reasons, `said`, `ran` and notes pass `maskedCredentials`
+  first. A secret in a shape that the mask does not know can still land in the file. The file
+  gets the mode of the umask, because `$.fs.write` takes no mode.
+- **The folder grows.** No board deletes a file. Readers skip files older than 7 days, and the
+  README gives the prune line.
+- **Two writers of one waiver at the same moment.** The engine has no compare-and-set. The later
+  write wins.
+- **An agent sets a waiver the owner did not give.** `waiver_set` refuses a `said` that no kept
+  prompt of the person holds. Any local process can still write the file; it stays a pacing input,
+  never an approval (OQ 4).
+- **A session that never sets a goal.** The tree shows `Goal  none set` with its age and the
+  stale mark, and each tree note asks for `goal_set`.
+- **The cue becomes noise.** At most one tree note and one due note in 20 tool calls, and none
+  while the tree changes and nothing is due. `Do not reply about this note.` closes every note.
 - **A dropped mouse press.** The host drops a press whose release lands one cell away
   (handily-kkzm06). Every press has a key and a command.
 - **No limits.** Off a subscription, `rateLimits` is empty: `Usage  limits: none reported`, no
-  verdict, no waiver.
+  verdict.
+- **Asks of Codex or Copilot.** They are not in For you in version 1. The README and the `note`
+  of `board_read all` say so, and they go to tracker records.
 
 ##### The cuts of the build (each about a day)
 
-| Cut | Scope | Records |
-| --- | --- | --- |
-| C0 | Probes P1 to P7, recorded on handily-bx84cu (half a day) | - |
-| C1 | The board file v 1: folder rule, writer, size cap, masking; `board_read`; `/board file`; README with the path and a `jq` line | - |
-| C2 | For you evidence: kept commands, `ran`, `person_rejected`, `ran in chat?`, the hint lines, the note names the commands | - |
-| C3 | Approval: `approves` on `task_assign`, and outcome A or B of P1 | - |
-| C4 | The goal and the tree: `goal_set`, `parent`, derived status, the tree rows, agents under tasks, waiting agents in For you, the Agents block removed, `a` | - |
-| C5 | The cue: the concrete note, the tool-result note by `$.session.append`, the `cue` fields; then the measure on 12 sessions | handily-hxwjbf |
-| C6 | Expanders and the fit: the expander rule, the log keeps 4,000 characters, the fit to the pane height, the key footer and `h`, copy as Markdown | handily-bxfx7w, handily-dr5989, handily-tzqb8p |
-| C7 | The Usage block: verdicts, `7d room`, the waiver ask, file and fill, `/board waiver`; the live check of the projection and the toast | handily-eh6mbu |
+C3 is merged into C2. The numbers of the other cuts stay, so the notes on the records keep their
+meaning.
 
-Order: C0, C1, C2, C3, C4, C5, C6, C7. For you comes first because the owner uses it most. Each
-cut is one record, one branch and one release, with a live tmux check of the installed plugin.
-The harness hooks are a record in the basicly tracker, not in handily.
+| Cut | Scope |
+| --- | --- |
+| C0 | Probes P1, P3, P4, P5, and P2 only on outcome B of P1, recorded on handily-bx84cu |
+| C1 | The board file v 1, its writes, liveness, `board_read`, `/board file`, the README |
+| C2 | For you evidence, due, keep open, the due note, the hint lines, `approves` |
+| C4 | The goal and the tree, cancelled and obsolete, the refusals, `/board goal`, agents |
+| C5 | The cue: the concrete note, the goal note, the tool-result note, the notes count |
+| C6 | Expanders and the fit, the log keeps 4,000 characters, the footer, `h`, copy |
+| C7 | The Usage block: `windows[]`, the verdict, `7d room`, the waiver file and its command |
+
+- C1 also holds the folder rule, the size cap, the masking, the heartbeat, the trailing write,
+  the reader rule, the `jq` and prune lines, the torn-read check and the resume check.
+- C2 also holds the kept commands, `ran`, `person_rejected`, `ran in chat?`, the prompt count,
+  `[ close with this prompt ]`, `/board said`, `task_keep_open`, `/board keep`, and outcome A or
+  B of P1. C2 is not done until basicly-7kxnrfj lands.
+- C5 folds handily-hxwjbf; its measure becomes the measure of C5.
+- C4 also holds `parent`, the derived status, the tree rows, agents under tasks, waiting agents
+  in For you, the Agents block removed, and `a`.
+- C6 folds handily-bxfx7w, handily-dr5989 (with the hotkey check of the former P7) and
+  handily-tzqb8p.
+- C7 folds handily-eh6mbu. It also holds `waiver_set`, `/board waiver`, the per-session
+  snapshot name after OQ 15, and the live check of the projection and the toast.
+
+Order: C0, C1, C2, C4, C5, C6, C7. For you comes first because the owner uses it most. Each cut
+is one record, one branch and one release, with a live tmux check of the installed plugin. The
+Stop hook is basicly-7kxnrfj in the basicly tracker, not in handily.
 
 ##### Records
 
 | Record | State today | In this design |
 | --- | --- | --- |
-| handily-hxwjbf | two cuts released (0.35.1, 0.39.1); measure of 3 worker sessions open | folds into C5; its measure becomes the measure of C5 |
-| handily-kwl9m1 | released in 0.39.0; live check open | stays; C4 adds `parent` to the fields it lists |
-| handily-eq3pqp | released in 0.38.0; live check open | stays; C2 matches `ran` against its command lines |
-| handily-8gg9ro | released in 0.39.2; live check open; `task_list` still doubles a backslash | stays; the board file writes the raw lines |
-| handily-dr5989 | open, not built | folds into C6 |
-| handily-h4zh9h | open, not built | stays; its history rows read the ended board files, not a new CSV |
+| basicly-7kxnrfj | open, priority 1, in basicly | the Stop hook; C2 waits for it |
+| handily-hxwjbf | 2 cuts released (0.35.1, 0.39.1); a measure open | folds into C5 |
+| handily-kwl9m1 | closed 2026-11-28 after its live check | C4 adds `parent` and `reason` |
+| handily-eq3pqp | closed 2026-11-28 after its live check | C2 matches `ran` to its lines |
+| handily-8gg9ro | closed 2026-11-28; `task_list` doubles a backslash | the file writes raw lines |
+| handily-dr5989 | open, not built | folds into C6, with the hotkey check |
+| handily-h4zh9h | open, not built | stays; its history reads the ended board files |
 | handily-tzqb8p | open, not built | folds into C6 (`[ c: copy ]` on the opened task) |
 | handily-bxfx7w | open, not built | folds into C6, with the fold order of 25.10 |
-| handily-eh6mbu | open, deferred | folds into C7: the live check of the Usage block covers it |
-| handily-wch3o5 | F7 released in 0.35.2; F1, F3, F4, F5, F8, F11, F12 open | F1 and F8 fold into C6; F3, F4, F5, F11, F12 stay |
+| handily-eh6mbu | open, deferred | folds into C7: the live check of the Usage block |
+| handily-nvtbc | open, not built | takes `openForYou` from the board files |
+| handily-wch3o5 | F7 released; F1, F3, F4, F5, F8, F11, F12 open | F1, F8 into C6; others stay |
 
 ### 4.10 reply-view: tables, code and diagrams (handily-5zzxk)
 
