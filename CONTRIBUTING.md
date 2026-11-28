@@ -77,7 +77,7 @@ run no mod test, no type check, no lint and no validate (handily-ecyzjc, owner o
 
 | Check | Command | What it runs |
 | --- | --- | --- |
-| `prettier-changed` | `node scripts/mods.mjs format-check --changed` | `prettier --check` over the changed files under `mods`, `probes`, `scripts` and `eslint.config.mjs`. Its fix command writes the format before the gate |
+| `prettier-changed` | `node scripts/mods.mjs format-check --changed` | `prettier --check` over the changed files under `mods`, `probes`, `scripts` and `eslint.config.mjs`. Its fix command, `node scripts/mods.mjs format --changed`, writes the format of the same staged files before the gate |
 
 The `basicly-gates` workflow runs validate, the type check, lint, the format check, the scripts
 tests and every mod test on every pull request and every push to `main`. Its job
